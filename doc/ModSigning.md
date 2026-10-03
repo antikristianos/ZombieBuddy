@@ -99,17 +99,17 @@ ZombieBuddy can load a known authors list from `authors.json`. Entries look like
 
 This list gives ZombieBuddy a stable mapping from SteamID64 to display name and public signing keys. ZombieBuddy syncs `authors.json` from GitHub and caches it in the ZombieBuddy config directory, so new author entries can be added without publishing a ZombieBuddy mod update, and verification can still work when the remote list is temporarily unavailable.
 
-When an author has keys in `authors.json`, those keys are authoritative. A failed check against those keys is final; local keys or a Steam profile cannot override it. Authors without official keys use the local cache and Steam profile lookup described below.
+ZombieBuddy checks signing keys in order: `authors.json`, the local author cache, then the author's Steam profile. A successful check at any stage validates the signature without consulting later stages. A mismatch in the official list does not block fallback to the local cache or Steam profile; the signature is rejected only if none of these sources can verify it.
 
 Authors who want to keep their Steam profile private can submit a pull request to add their SteamID64, display name, and public key instead of publishing `JavaModZBS:<key>` on their profile. Do this by adding a new file to `authors/` (named after the author, e.g. `authors/author-name.json`), not by editing `authors.json` directly — that file is regenerated from `authors/` and any direct edits to it will be overwritten.
 
 ## Local Steam Profile Cache
 
-For authors absent from the signed known-author list, a successful signature check saves the verified public key and profile name in `authors.local.json` under the active `config_dir` (default `~/.zombie_buddy`). The key and name come from one HTTPS XML profile response. Only a key that verifies the current JAR is saved; a profile lookup alone never grants trust or approval.
+When neither the official list nor the local cache verifies a signature, a successful Steam-profile check saves the verified public key and profile name in `authors.local.json` under the active `config_dir` (default `~/.zombie_buddy`). The key and name come from one HTTPS XML profile response. Only a key that verifies the current JAR is saved; a profile lookup alone never grants trust or approval. The successful profile response updates that author's cached keys, removing old keys no longer published in the profile and retaining previously verified keys only if still published. Other authors' entries remain unchanged.
 
 Matching cached keys verify later JARs without a Steam profile request, including after a process restart. A missing key or signature mismatch permits a profile lookup; one response or failure per author is reused for the process lifetime. The first verified profile name stays attached to that SteamID64 even after a name or key change. Display names are labels, not identities.
 
-This cache deliberately has no expiry or periodic refresh. Removing a key from a Steam profile does not revoke a matching cached key. To force a fresh lookup, close all processes using that configuration and remove the relevant entry from `authors.local.json` (or remove the file). Signed official author keys remain authoritative. `http_cache_ttl` does not expire or disable this verified-key cache.
+This cache deliberately has no expiry or periodic refresh. Removing a key from a Steam profile does not revoke a matching cached key until a successful profile fallback updates the entry. To force a fresh lookup, close all processes using that configuration and remove the relevant entry from `authors.local.json` (or remove the file). `http_cache_ttl` does not expire or disable this verified-key cache.
 
 Client, Coop and headless server processes sharing `config_dir` merge writes under `authors.local.lock` and publish the JSON atomically. Different configuration directories have separate caches. Corrupt or unsupported cache files are ignored and preserved; a successful fresh verification can still proceed, with a warning if saving fails.
 

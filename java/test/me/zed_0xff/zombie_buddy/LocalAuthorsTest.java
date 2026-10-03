@@ -98,6 +98,67 @@ class LocalAuthorsTest {
     }
 
     @org.junit.jupiter.api.Test
+    void triesOfficialThenCacheThenProfileAndRefreshesOnlyVerifiedKeys() throws Exception {
+        root = tempRoot;
+        Agent.arguments.put("config_dir", root.toString());
+        jar = root.resolve("fallback.jar");
+        zbs = root.resolve("fallback.jar.zbs");
+        Files.writeString(jar, "three-stage signature verification");
+        first = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        second = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        KeyPair third = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        sign(first, ID);
+        profile("Original name", key(first));
+        check(
+                verify(ID, official(key(first))) instanceof ValidSignature && requests == 0,
+                "Official success short-circuits all fallback sources");
+        check(
+                !Files.exists(root.resolve("authors.local.json")),
+                "Official success does not create local cache");
+        check(
+                verify(ID, official(key(second))) instanceof ValidSignature && requests == 1,
+                "Official mismatch permits Steam fallback on cache miss");
+        restart();
+        LocalAuthors.profileFetcher =
+                id -> {
+                    throw new AssertionError("Cache hit must not fetch Steam");
+                };
+        check(
+                verify(ID, official(key(second))) instanceof ValidSignature,
+                "Official mismatch permits offline local key");
+        check(
+                verify(ID, official("not-a-key")) instanceof ValidSignature,
+                "Unusable official keys also permit a valid later source");
+        sign(third, ID);
+        restart();
+        profile("Changed name", key(third));
+        check(
+                verify(ID, official(key(second))) instanceof ValidSignature && requests == 2,
+                "Both earlier sources can mismatch before Steam succeeds");
+        check(
+                cache().contains(key(third)) && !cache().contains(key(first)),
+                "Verified Steam refresh replaces retired cached key");
+        check(
+                cache().contains("Original name") && !cache().contains("Changed name"),
+                "Key refresh retains the first verified display name");
+        String refreshed = cache();
+        sign(first, ID);
+        check(
+                verify(ID, official(key(second))) instanceof InvalidSignature && requests == 2,
+                "Reject only after official, local and fetched profile keys all mismatch");
+        check(refreshed.equals(cache()), "Failed profile check cannot overwrite verified cache");
+        restart();
+        sign(third, ID);
+        LocalAuthors.profileFetcher =
+                id -> {
+                    throw new AssertionError("Updated cache must verify offline");
+                };
+        check(
+                verify(ID, official(key(second))) instanceof ValidSignature,
+                "Refreshed local key survives restart and official mismatch");
+    }
+
+    @org.junit.jupiter.api.Test
     void verifiesPersistentCacheAndIdentityBoundaries() throws Exception {
         root = tempRoot;
         Files.createDirectories(root);
@@ -119,11 +180,11 @@ class LocalAuthorsTest {
         check(requests == 0, "No request on uploader mismatch");
         check(verify(ID, official(key(first))) instanceof ValidSignature, "Official key");
         check(
-                verify(ID, official(key(second))) instanceof InvalidSignature,
-                "Official failure is final");
-        check(
                 requests == 0 && !Files.exists(root.resolve("authors.local.json")),
-                "Official precedence without cache writes");
+                "Official success needs no fallback or cache write");
+        check(
+                verify(ID, official(key(second))) instanceof ValidSignature,
+                "Official mismatch falls through to valid Steam profile key");
         check(verify(ID, Map.of()) instanceof ValidSignature, "Initial online verification");
         check(requests == 1, "Single initial request");
         String original = cache();
@@ -206,8 +267,8 @@ class LocalAuthorsTest {
         profile("Third name", key(second));
         sign(second, ID);
         check(
-                verify(ID, official(key(first))) instanceof InvalidSignature && requests == 3,
-                "Official keys override matching local key");
+                verify(ID, official(key(first))) instanceof ValidSignature && requests == 3,
+                "Official mismatch falls through to matching local key without Steam lookup");
         check(
                 verify(ID, Map.of()) instanceof ValidSignature && requests == 3,
                 "Local matching key still needs no lookup");

@@ -166,8 +166,8 @@ public final class ZBSVerifier {
         }
         List<String> pubHexes = knownJavaModZBSHexes(sid, knownAuthors);
         if (!pubHexes.isEmpty()) {
-            // Signed official keys remain authoritative, even on verification failure.
-            return verifyWithKeys(parsed, jarSha256Hex, pubHexes, "known authors list");
+            Verification official = verifyWithKeys(parsed, jarSha256Hex, pubHexes, "known authors list");
+            if (official instanceof ValidSignature) return official;
         }
         return LocalAuthors.verify(parsed, jarSha256Hex);
     }

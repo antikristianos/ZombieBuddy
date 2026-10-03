@@ -24,8 +24,8 @@ import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 
 /**
- * Persistent Steam-profile keys for authors absent from the signed authors list. Keys are saved
- * only after they verify a JAR. Cache entries have no expiry; matching signatures require no
+ * Persistent Steam-profile keys used after the signed authors list cannot verify a JAR. Keys are
+ * saved only after they verify a JAR. Cache entries have no expiry; matching signatures require no
  * profile access and the first verified name is retained. This stores identity information, not
  * author trust or JAR approval decisions.
  */
@@ -113,7 +113,6 @@ final class LocalAuthors {
             Verification result =
                     ZBSVerifier.verifyWithKeys(parsed, hash, cached.keys, "local author cache");
             if (result instanceof ValidSignature) return result;
-            if (!(result instanceof InvalidSignature)) return result;
         }
         // A Coop/server process may already have saved this author since our initial read.
         try {
@@ -182,9 +181,8 @@ final class LocalAuthors {
                                 StandardOpenOption.WRITE);
                 var lock = channel.lock()) {
             Store merged =
-                    read(
-                            path); // Re-read under process lock; never overwrite another author's
-                                   // entries.
+                    read(path); // Re-read under process lock; never overwrite another author's
+            // entries.
             Entry entry = merged.authors.get(sid);
             String now = Instant.now().toString();
             if (entry == null) {
