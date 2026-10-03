@@ -20,7 +20,12 @@ public class JavaStateDumper {
         if (!_initialized) {
             _initialized = true;
             Callbacks.onDisplayCreate.register(JavaStateDumper::installKeyCallback);
-            Signal.handle(new Signal("INFO"), JavaStateDumper::handleSignal);
+            try {
+                Signal.handle(new Signal("INFO"), JavaStateDumper::handleSignal);
+            } catch (IllegalArgumentException e) {
+                // SIGINFO is optional and unavailable on some platforms (including Windows).
+                Logger.info("SIGINFO is unavailable; keyboard state dump remains enabled.");
+            }
         }
     }
 
