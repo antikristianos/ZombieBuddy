@@ -125,5 +125,4 @@ Examples (block form, these go into Steam launch options):
 [url=https://github.com/zed-0xff/ZombieBuddy]GitHub Repository[/url]
 
 [h1]Support the Project[/h1]
-If you find ZombieBuddy useful, consider supporting its development:
-[url=https://ko-fi.com/zed_0xff][img]https://i.imgur.com/Utx6OIH.png[/img][/url]
+[url=https://patreon.com/zed_0xff][img]https://cdn.jsdelivr.net/gh/zed-0xff/ZombieBuddy@master/patreon.png[/img][/url]

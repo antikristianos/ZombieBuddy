@@ -238,7 +238,7 @@ final class LocalAuthors {
                         .GET()
                         .build();
         HttpResponse<String> response =
-                SteamWorkshop.HTTP.send(
+                SteamWorkshop.http().send(
                         request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (response.statusCode() != 200)
             throw new IOException("Steam HTTP " + response.statusCode());

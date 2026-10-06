@@ -5,6 +5,11 @@ import static me.zed_0xff.zombie_buddy.SteamWorkshop.WorkshopItemID;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -95,13 +100,31 @@ record JavaModInfo(
     }
     
     /**
+     * One (jarFile, zbVersionMin, zbVersionMax) triple parsed from mod.info. The numeric suffix on
+     * javaJarFileN / zbVersionMinN / zbVersionMaxN keys (implicitly 0 when absent) ties these three
+     * fields together, so a single mod.info can offer several JARs built against different
+     * ZombieBuddy API versions; the loader picks the first candidate whose range covers the running
+     * ZombieBuddy version. Plain ZB 2.x installs don't understand the numbered keys and only ever see
+     * the suffix-less (index 0) entry, so existing single-jar mod.info files keep working as-is.
+     */
+    private record JarCandidate(String jarFilePath, String zbVersionMin, String zbVersionMax) {}
+
+    private static final class CandidateBuilder {
+        String jarFilePath;
+        String zbVersionMin;
+        String zbVersionMax;
+    }
+
+    private static final Pattern JAR_KEY = Pattern.compile("^javajarfile(\\d*)=");
+    private static final Pattern MIN_KEY = Pattern.compile("^zbversionmin(\\d*)=");
+    private static final Pattern MAX_KEY = Pattern.compile("^zbversionmax(\\d*)=");
+
+    /**
      * Internal record to hold parsed values from a mod.info file.
      */
     private record ParsedValues(
-        String jarFilePath,
+        List<JarCandidate> jarCandidates,
         String javaPkgName,
-        String zbVersionMin,
-        String zbVersionMax,
         String displayName,
         boolean javaPreload
     ) {}
@@ -110,21 +133,27 @@ record JavaModInfo(
         return line.split("=", 2)[1].trim();
     }
 
-    private static String versionMismatchMessage(String minVersion, String maxVersion) {
-        return "(requires: " + (minVersion != null ? minVersion : "any") + " to "
-            + (maxVersion != null ? maxVersion : "any") + ", ZombieBuddy version: " + ZombieBuddy.getVersion() + ")";
+    private static String versionMismatchMessage(List<JarCandidate> candidates) {
+        StringBuilder sb = new StringBuilder("(requires one of: ");
+        for (int i = 0; i < candidates.size(); i++) {
+            if (i > 0) sb.append(", ");
+            JarCandidate c = candidates.get(i);
+            sb.append(c.zbVersionMin() != null ? c.zbVersionMin() : "any")
+              .append(" to ")
+              .append(c.zbVersionMax() != null ? c.zbVersionMax() : "any");
+        }
+        sb.append("; ZombieBuddy version: ").append(ZombieBuddy.getVersion()).append(")");
+        return sb.toString();
     }
 
     /**
      * Validates parsed values and creates JavaModInfo, or null if invalid.
      */
     private static JavaModInfo validateAndCreate(ParsedValues parsed, Path infPath, Path infDir, Path jarDir, boolean bLogMissingJar) {
-        String jarFilePath = parsed.jarFilePath();
+        List<JarCandidate> candidates = parsed.jarCandidates();
         String javaPkgName = parsed.javaPkgName();
-        String zbVersionMin = parsed.zbVersionMin();
-        String zbVersionMax = parsed.zbVersionMax();
 
-        if (Utils.isBlank(jarFilePath)) {
+        if (candidates.isEmpty()) {
             Logger.trace("No 'javaJarFile' in", infPath);
             return null;
         }
@@ -132,23 +161,33 @@ record JavaModInfo(
             Logger.error("No 'javaPkgName' in", infPath);
             return null;
         }
-        if (Utils.isServer()) {
-            if (jarFilePath.contains("media/java/client/")) {
-                Logger.warn("Skipping client-only mod", infPath);
-                return null;
+
+        boolean isServer = Utils.isServer();
+        boolean anyPlatformMatch = false;
+        JarCandidate versionMatch = null;
+
+        for (JarCandidate candidate : candidates) {
+            String jarFilePath = candidate.jarFilePath();
+            if (isServer ? jarFilePath.contains("media/java/client/") : jarFilePath.contains("media/java/server/")) {
+                continue;
             }
-        } else {
-            if (jarFilePath.contains("media/java/server/")) {
-                Logger.warn("Skipping server-only mod", infPath);
-                return null;
+            anyPlatformMatch = true;
+            if (isVersionInRange(ZombieBuddy.getVersion(), candidate.zbVersionMin(), candidate.zbVersionMax())) {
+                versionMatch = candidate;
+                break;
             }
         }
-        if (!isVersionInRange(ZombieBuddy.getVersion(), zbVersionMin, zbVersionMax)) {
-            Logger.error("Skipping mod due to version mismatch", infPath, versionMismatchMessage(zbVersionMin, zbVersionMax));
+
+        if (!anyPlatformMatch) {
+            Logger.warn(isServer ? "Skipping client-only mod" : "Skipping server-only mod", infPath);
+            return null;
+        }
+        if (versionMatch == null) {
+            Logger.error("Skipping mod due to version mismatch", infPath, versionMismatchMessage(candidates));
             return null;
         }
 
-        Path jarPath = jarDir.resolve(jarFilePath);
+        Path jarPath = jarDir.resolve(versionMatch.jarFilePath());
         if (!Files.isRegularFile(jarPath)) {
             Logger.log(bLogMissingJar ? Logger.ERROR : Logger.TRACE, "JAR not found", jarPath);
             return null;
@@ -158,8 +197,8 @@ record JavaModInfo(
             infPath,
             jarPath,
             javaPkgName,
-            zbVersionMin,
-            zbVersionMax,
+            versionMatch.zbVersionMin(),
+            versionMatch.zbVersionMax(),
             parsed.displayName(),
             parsed.javaPreload()
         );
@@ -177,10 +216,8 @@ record JavaModInfo(
             return null;
         }
 
-        String jarFilePath  = null;
+        Map<Integer, CandidateBuilder> candidates = new HashMap<>();
         String javaPkgName  = null;
-        String zbVersionMin = null;
-        String zbVersionMax = null;
         String displayName  = null;
         boolean javaPreload = false;
 
@@ -192,18 +229,22 @@ record JavaModInfo(
                 }
                 String lowerLine = line.toLowerCase();
                 String value = trimmedValue(line);
+                Matcher m;
 
-                if (lowerLine.startsWith("javajarfile=")) {
-                    if (jarFilePath != null) {
-                        Logger.error("Warning! Multiple javaJarFile entries found, only the first one will be used: " + infPath);
-                        continue;
-                    }
+                if ((m = JAR_KEY.matcher(lowerLine)).find()) {
+                    int idx = m.group(1).isEmpty() ? 0 : Integer.parseInt(m.group(1));
                     if (!value.isEmpty()) {
                         if (!value.endsWith(".jar")) {
                             Logger.error("Error! javaJarFile entry must end with \".jar\": " + value);
                             continue;
                         }
-                        jarFilePath = value;
+                        CandidateBuilder b = candidates.computeIfAbsent(idx, k -> new CandidateBuilder());
+                        if (b.jarFilePath != null) {
+                            Logger.error("Warning! Multiple javaJarFile" + (idx == 0 ? "" : idx)
+                                + " entries found, only the first one will be used: " + infPath);
+                            continue;
+                        }
+                        b.jarFilePath = value;
                     }
                 } else if (lowerLine.startsWith("javapkgname=")) {
                     if (javaPkgName != null) {
@@ -213,10 +254,12 @@ record JavaModInfo(
                     if (!value.isEmpty()) {
                         javaPkgName = value;
                     }
-                } else if (lowerLine.startsWith("zbversionmin=")) {
-                    zbVersionMin = value;
-                } else if (lowerLine.startsWith("zbversionmax=")) {
-                    zbVersionMax = value;
+                } else if ((m = MIN_KEY.matcher(lowerLine)).find()) {
+                    int idx = m.group(1).isEmpty() ? 0 : Integer.parseInt(m.group(1));
+                    candidates.computeIfAbsent(idx, k -> new CandidateBuilder()).zbVersionMin = value;
+                } else if ((m = MAX_KEY.matcher(lowerLine)).find()) {
+                    int idx = m.group(1).isEmpty() ? 0 : Integer.parseInt(m.group(1));
+                    candidates.computeIfAbsent(idx, k -> new CandidateBuilder()).zbVersionMax = value;
                 } else if (lowerLine.startsWith("name=")) {
                     if (displayName == null && !value.isEmpty()) {
                         displayName = value;
@@ -230,7 +273,21 @@ record JavaModInfo(
             return null;
         }
 
-        return new ParsedValues(jarFilePath, javaPkgName, zbVersionMin, zbVersionMax, displayName, javaPreload);
+        List<Integer> indices = new ArrayList<>(candidates.keySet());
+        Collections.sort(indices);
+
+        List<JarCandidate> jarCandidates = new ArrayList<>();
+        for (Integer idx : indices) {
+            CandidateBuilder b = candidates.get(idx);
+            if (Utils.isBlank(b.jarFilePath)) {
+                Logger.error("Warning! zbVersionMin" + (idx == 0 ? "" : idx) + "/zbVersionMax" + (idx == 0 ? "" : idx)
+                    + " given without a matching javaJarFile" + (idx == 0 ? "" : idx) + ": " + infPath);
+                continue;
+            }
+            jarCandidates.add(new JarCandidate(b.jarFilePath, b.zbVersionMin, b.zbVersionMax));
+        }
+
+        return new ParsedValues(jarCandidates, javaPkgName, displayName, javaPreload);
     }
     
     /**

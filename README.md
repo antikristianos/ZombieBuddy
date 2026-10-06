@@ -87,14 +87,12 @@ public static class MyPatch {
 ## Requirements
 
 - **Project Zomboid** (Build 42+)
-- **Java 17** (required by the game)
+- **Java 25** (required by the game)
 - **Gradle** (for building Java mods)
 
 ## ☕ Support the Project
 
-If you find ZombieBuddy useful, consider supporting its development:
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/zed_0xff)
+[![patreon](https://cdn.jsdelivr.net/gh/zed-0xff/ZombieBuddy@master/patreon.png)](https://patreon.com/zed_0xff)
 
 ## License
 

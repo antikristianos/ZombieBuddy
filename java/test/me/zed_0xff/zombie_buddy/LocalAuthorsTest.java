@@ -98,6 +98,30 @@ class LocalAuthorsTest {
     }
 
     @org.junit.jupiter.api.Test
+    void unavailableHttpClientRejectsVerificationWithoutCachingOrRetrying() throws Exception {
+        root = tempRoot;
+        Agent.arguments.put("config_dir", root.toString());
+        jar = root.resolve("http-unavailable.jar");
+        zbs = root.resolve("http-unavailable.jar.zbs");
+        Files.writeString(jar, "signed artifact requiring profile lookup");
+        first = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        sign(first, ID);
+
+        try (var steam = org.mockito.Mockito.mockStatic(SteamWorkshop.class)) {
+            steam.when(() -> SteamWorkshop.authorProfileUrl(ID))
+                    .thenReturn("https://steamcommunity.com/profiles/" + ID + "/");
+            steam.when(SteamWorkshop::http)
+                    .thenThrow(new java.io.IOException("Could not create HTTP client: selector unavailable"));
+            Verification result = verify(ID, Map.of());
+            check(result instanceof VerificationError, "Unavailable HTTP client fails closed");
+            check(result.detailedMessage.contains("selector unavailable"), "Preserve HTTP failure details");
+            check(!Files.exists(root.resolve("authors.local.json")), "Failed lookup cannot persist keys");
+            check(verify(ID, Map.of()) instanceof VerificationError, "Reuse profile failure in this process");
+            steam.verify(SteamWorkshop::http, org.mockito.Mockito.times(1));
+        }
+    }
+
+    @org.junit.jupiter.api.Test
     void triesOfficialThenCacheThenProfileAndRefreshesOnlyVerifiedKeys() throws Exception {
         root = tempRoot;
         Agent.arguments.put("config_dir", root.toString());

@@ -1,0 +1,9 @@
+This is a BETA version 3.0 of ZombieBuddy mod.
+
+Release version is here - https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853
+
+You cannot install both versions at the same time.
+
+Mod incompatibilities are expected.
+
+[url=https://patreon.com/zed_0xff][img]https://cdn.jsdelivr.net/gh/zed-0xff/ZombieBuddy@master/patreon.png[/img][/url]

@@ -35,7 +35,7 @@ ZBVersionMax=1.5.0
 | Field | Description |
 |-------|-------------|
 | `require=\ZombieBuddy` | Declares dependency on ZombieBuddy framework |
-| `javaJarFile` | Path to your JAR file relative to the mod version directory. **Required** for Java code. Only a single JAR per mod is supported. |
+| `javaJarFile` | Path to your JAR file relative to the mod version directory. **Required** for Java code. |
 | `javaPkgName` | The package name for your Main class and patches. **Mandatory** if `javaJarFile` is specified. |
 | `ZBVersionMin` | (Optional) Minimum ZombieBuddy version required (inclusive) |
 | `ZBVersionMax` | (Optional) Maximum ZombieBuddy version required (inclusive) |
@@ -49,13 +49,39 @@ ZombieBuddy skips loading a Java mod when the environment and JAR path don't mat
 
 Use a path that does not contain `client/` or `server/` (e.g. `media/java/YourMod.jar`) for code that runs on both.
 
+### Multiple JARs per mod (supporting several ZombieBuddy API versions)
+
+*Since ZombieBuddy 3.0.* ZombieBuddy 2.x only ever reads the suffix-less `javaJarFile`/`ZBVersionMin`/`ZBVersionMax`
+entry; it does not recognize the numbered keys below.
+
+If your mod needs different JARs for different ZombieBuddy versions (e.g. you compiled a new build
+against a ZombieBuddy API change but still want old installs to keep working), add a numeric suffix
+to `javaJarFile`, `ZBVersionMin`, and `ZBVersionMax` to declare additional candidates:
+
+```ini
+javaJarFile=media/java/YourMod.jar
+ZBVersionMin=1.0.0
+ZBVersionMax=2.9.9
+
+javaJarFile2=media/java/YourMod-new.jar
+ZBVersionMin2=3.0.0
+```
+
+- The suffix-less entry is equivalent to suffix `0`.
+- Suffixes don't need to be sequential or contiguous — any number works (`javaJarFile7`, etc.).
+- At load time, candidates are evaluated in ascending suffix order; the first one whose
+  `ZBVersionMin`/`ZBVersionMax` range covers the running ZombieBuddy version (and whose path matches
+  the current client/server platform) is used.
+- ZombieBuddy 2.x doesn't recognize the numbered keys and only ever sees the suffix-less entry, so
+  a single-JAR `mod.info` keeps working unmodified on older installs.
+
 ### Important notes
 
 - `javaPkgName` is **mandatory** when `javaJarFile` is specified
 - The Main class is always named `Main` (if present)
 - The Main class is **optional** - patches will be applied even if Main class doesn't exist
 - The JAR file must contain the package specified in `javaPkgName`
-- Only one `javaJarFile` and one `javaPkgName` entry per mod
+- Only one `javaPkgName` entry per mod; `javaJarFile` may have multiple numbered entries (see above)
 - [test isolation requires PZ restart, not just save reload](#13)
 
 ---

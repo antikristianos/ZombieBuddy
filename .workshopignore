@@ -4,9 +4,12 @@
 *.local
 *.rb
 *.rake
+*.sh
 *.xcf
 *-plain.jar
+experimental.jar
 out.jar
+patches.jar
 test*.jar
 
 .classpath
@@ -18,6 +21,7 @@ test*.jar
 names.yml
 Rakefile
 
+authors
 build
 lib
 misc
