@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include "runtime_guard.h"
 
 HMODULE hOrig = NULL;
 
@@ -8,6 +9,9 @@ HMODULE hOrig = NULL;
 
 // Minimal DllMain to prevent CRT initialization
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+    (void)hinstDLL;
+    (void)fdwReason;
+    (void)lpvReserved;
     return TRUE;
 }
 
@@ -20,20 +24,34 @@ void write_msg(const char* msg) {
 }
 
 void init_instrument_dll() {
+    union {
+        FARPROC raw;
+        int (*entry)(void*, char*, void*);
+        void (*unload)(void*);
+    } proc;
     if (hOrig) return; // already loaded
 
-    SetDllDirectoryA(".\\jre64\\bin");
-    hOrig = LoadLibraryA("instrument.dll");
-    SetDllDirectoryA(NULL);
+    hOrig = load_runtime_instrument();
 
     if (!hOrig) {
         write_msg("[zbNative] Failed to load instrument.dll\n");
         return;
     }
 
-    *(void**)&pAgent_OnAttach = GetProcAddress(hOrig, "Agent_OnAttach");
-    *(void**)&pAgent_OnLoad   = GetProcAddress(hOrig, "Agent_OnLoad");
-    *(void**)&pAgent_OnUnload = GetProcAddress(hOrig, "Agent_OnUnload");
+    proc.raw = GetProcAddress(hOrig, "Agent_OnAttach");
+    pAgent_OnAttach = proc.entry;
+    proc.raw = GetProcAddress(hOrig, "Agent_OnLoad");
+    pAgent_OnLoad = proc.entry;
+    proc.raw = GetProcAddress(hOrig, "Agent_OnUnload");
+    pAgent_OnUnload = proc.unload;
+    if (!pAgent_OnAttach || !pAgent_OnLoad || !pAgent_OnUnload) {
+        guard_fail("Active runtime instrument.dll lacks agent exports.", runtimeInstrumentPath);
+        FreeLibrary(hOrig);
+        hOrig = NULL;
+        pAgent_OnAttach = NULL;
+        pAgent_OnLoad = NULL;
+        pAgent_OnUnload = NULL;
+    }
 }
 
 void check_and_apply_update(const char* jarPath) {
