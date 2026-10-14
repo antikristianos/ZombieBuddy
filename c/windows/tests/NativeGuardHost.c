@@ -5,6 +5,7 @@
 #include <jni.h>
 
 static WCHAR libraryPath[32768];
+static WCHAR loadedJvmPath[32768];
 static char agentOption[65536], classpathOption[65536];
 static JavaVMOption options[6];
 
@@ -39,6 +40,22 @@ void mainCRTStartup(void) {
     lstrcpyW(libraryPath, args[1]); lstrcatW(libraryPath, L"\\server\\jvm.dll");
     library = LoadLibraryExW(libraryPath, NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!library) { log_message("Host cannot load JVM.\n"); ExitProcess(92); }
+    {
+        DWORD size = GetModuleFileNameW(library, loadedJvmPath, 32768);
+        if (!size || size >= 32768) ExitProcess(105);
+        if (lstrcmpW(args[4], L"unicode") == 0) {
+            DWORD i;
+            int hasUnicode = 0;
+            for (i = 0; i < size; i++) if (loadedJvmPath[i] > 127) hasUnicode = 1;
+            if (!hasUnicode || lstrcmpiW(loadedJvmPath, libraryPath) != 0) {
+                log_message("Unicode runtime path proof failed before JVM creation.\n");
+                ExitProcess(106);
+            }
+            log_message("PASS Unicode JVM module path: staged path retained before JVM creation\n");
+        }
+        if (!utf8(loadedJvmPath, agentOption, sizeof(agentOption))) ExitProcess(107);
+        log_message("JVM_MODULE="); log_message(agentOption); log_message("\n");
+    }
     create = (CreateVm)GetProcAddress(library, "JNI_CreateJavaVM");
     if (!create) ExitProcess(93);
     if (count > 5 && lstrcmpW(args[5], L"guard-only") == 0) {

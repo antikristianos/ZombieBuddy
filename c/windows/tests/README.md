@@ -12,4 +12,6 @@ The test compiles the native candidate with MSVC (without adding a CRT dependenc
 
 The guarded process must load exactly one `java.dll` and one `instrument.dll` from its active runtime. Localhost resolution, socket/HTTP-client creation and native agent option forwarding must succeed. Already loaded conflicting JVM modules cause an explicit guard message and startup refusal; they are never forcibly unloaded. No file is removed from or installed in the game directory.
 
+Every ordinary case passes its staged `jre64/bin` junction to the native host. The Unicode/spaces case uses an explicit `unicode` mode: before JVM creation, the host checks the real `jvm.dll` module path with `GetModuleFileNameW`, requires a non-ASCII character and verifies that the requested staged path was retained. After initialization the Java probe checks exactly one JVM, Java and instrumentation module, their file identities and their actual staged Unicode paths. File identity alone is not Unicode-path evidence because the junction and original runtime identify the same files. The separate missing-dependency case retains its deliberately incomplete runtime.
+
 These results do not establish full game/client/Coop/dedicated acceptance or native-attach behavior on an existing production JVM.

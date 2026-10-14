@@ -78,7 +78,9 @@ foreach($case in @('original-clean','original-leftovers','guard-clean','guard-le
     try {
         $mode=if($case -eq 'original-leftovers'){'reproduce'}else{'verify'}
 
-        $arguments=@($runtime,(Join-Path $stage 'zbNative.dll'),$cp,$mode)
+        $caseRuntime=Join-Path $runtimeLink 'bin'
+        if($case -match 'Unicode'){$mode='unicode'}
+        $arguments=@($caseRuntime,(Join-Path $stage 'zbNative.dll'),$cp,$mode)
         if($case -eq 'guard-preloaded'){$arguments+='preload'}
         if($case -eq 'guard-preloaded') {
             $previous=$ErrorActionPreference; $ErrorActionPreference='Continue'

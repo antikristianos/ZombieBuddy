@@ -31,17 +31,27 @@ public final class NativeGuardProbe {
             throw error;
         }
         if (args[1].equals("reproduce")) throw new AssertionError("Original failure not reproduced");
-        int javaCount = 0, instrumentCount = 0;
+        boolean unicodeRuntime = args[1].equals("unicode");
+        Path runtime = Path.of(args[0]).toAbsolutePath().normalize();
+        if (unicodeRuntime && runtime.toString().codePoints().noneMatch(c -> c > 127))
+            throw new AssertionError("Unicode runtime case received an ASCII runtime path");
+        int javaCount = 0, instrumentCount = 0, jvmCount = 0;
         for (Tlhelp32.MODULEENTRY32W module : Kernel32Util.getModules((int)ProcessHandle.current().pid())) {
             String name = module.szModule();
-            if (name.equalsIgnoreCase("java.dll") || name.equalsIgnoreCase("instrument.dll")) {
+            if (name.equalsIgnoreCase("java.dll") || name.equalsIgnoreCase("instrument.dll") || name.equalsIgnoreCase("jvm.dll")) {
                 Path loaded = Path.of(module.szExePath());
-                if (!Files.isSameFile(loaded, Path.of(args[0], name))) throw new AssertionError("Wrong module: " + loaded);
-                if (name.equalsIgnoreCase("java.dll")) javaCount++; else instrumentCount++;
+                Path expected = name.equalsIgnoreCase("jvm.dll") ? runtime.resolve("server/jvm.dll") : runtime.resolve(name);
+                if (!Files.isSameFile(loaded, expected)) throw new AssertionError("Wrong module: " + loaded);
+                if (unicodeRuntime && !loaded.toAbsolutePath().normalize().equals(expected))
+                    throw new AssertionError("Unicode runtime path bypassed: " + loaded);
+                if (name.equalsIgnoreCase("java.dll")) javaCount++;
+                else if (name.equalsIgnoreCase("instrument.dll")) instrumentCount++;
+                else jvmCount++;
                 System.out.println("MODULE=" + loaded);
             }
         }
-        if (javaCount != 1 || instrumentCount != 1) throw new AssertionError("Duplicate/missing JVM DLLs");
+        if (javaCount != 1 || instrumentCount != 1 || jvmCount != 1) throw new AssertionError("Duplicate/missing JVM DLLs");
+        if (unicodeRuntime) System.out.println("PASS Unicode runtime paths: JVM, Java and instrumentation paths retain the staged Unicode directory");
         System.out.println("PASS native guard: canonical modules, DNS, socket, HTTP client and shared options; no game session");
     }
 }
