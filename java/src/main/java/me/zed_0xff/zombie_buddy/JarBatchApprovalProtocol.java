@@ -34,6 +34,7 @@ public final class JarBatchApprovalProtocol {
         public final Path infAbsolutePath;
         public final String sha256;
         public final Date date;
+        /** In responses, null with MF_PERSIST explicitly clears a saved hash decision; the loader denies this launch. */
         public Boolean decision;
         public ModFlags flags = ModFlags.EMPTY;
         public final String modDisplayName;

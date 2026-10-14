@@ -328,6 +328,7 @@ public class Loader {
     }
 
     static void applyBatchApprovalLines(List<JarBatchApprovalProtocol.Entry> entries, JarDecisionTable disk) {
+        ApprovalChoices.applyClears(entries, g_storedEntries, Loader::removeTrustedAuthor);
         if (entries == null) return;
         for (JarBatchApprovalProtocol.Entry entry : entries) {
             if (entry == null || entry.decision == null || Utils.isBlank(entry.sha256)) continue;
