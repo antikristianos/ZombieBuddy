@@ -3,6 +3,8 @@ package me.zed_0xff.zombie_buddy;
 import java.io.IOException;
 import java.net.JarURLConnection;
 import java.net.URL;
+import java.nio.CharBuffer;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -12,6 +14,8 @@ import java.util.Map;
 
 /** Shares the client's ZombieBuddy approval settings with the local Coop child JVM. */
 public final class CoopServerJvmArguments {
+    // Keep synchronized with AGENT_OPTIONS_MAX in c/windows/zbNative.c.
+    static final int WINDOWS_AGENT_OPTIONS_MAX = 2048;
     private static final List<String> SHARED_OPTIONS =
             List.of("policy", "allow_unsigned_mods", "frontend", "config_dir", "verbosity");
 
@@ -76,10 +80,30 @@ public final class CoopServerJvmArguments {
                 shared.add(key + "=" + value);
             }
         }
-        if (!shared.isEmpty()) agent += "=" + String.join(",", shared);
+        String tail = String.join(",", shared);
+        if (os.toLowerCase(Locale.ROOT).startsWith("windows")) {
+            // The Windows launcher passes native agent options in the platform encoding,
+            // which can differ from Java's UTF-8 default charset.
+            Charset encoding =
+                    Charset.forName(
+                            System.getProperty(
+                                    "native.encoding",
+                                    System.getProperty(
+                                            "sun.jnu.encoding", Charset.defaultCharset().name())));
+            validateWindowsOptions(tail, encoding);
+        }
+        if (!tail.isEmpty()) agent += "=" + tail;
         List<String> inherited = new ArrayList<>(command);
         // Run ZombieBuddy's premain before other Java agents can load game classes.
         inherited.add(1, agent);
         return inherited;
+    }
+
+    static void validateWindowsOptions(String tail, Charset encoding) throws IOException {
+        String payload = "ZombieBuddy.jar" + (tail.isEmpty() ? "" : "=" + tail);
+        // The encoder rejects unmappable/malformed input rather than changing a path.
+        int bytes = encoding.newEncoder().encode(CharBuffer.wrap(payload)).remaining();
+        if ((long) bytes + 1 > WINDOWS_AGENT_OPTIONS_MAX)
+            throw new IOException("Shared options exceed the Windows native agent buffer");
     }
 }

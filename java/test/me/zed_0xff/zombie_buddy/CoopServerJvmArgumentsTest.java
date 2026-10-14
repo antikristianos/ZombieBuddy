@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,6 +23,93 @@ import javax.tools.ToolProvider;
 
 class CoopServerJvmArgumentsTest {
     @TempDir Path tempDir;
+
+    @Test
+    void nativeCapacityMatchesWindowsLoader() throws Exception {
+        String source = Files.readString(Path.of("..", "c", "windows", "zbNative.c"));
+        var capacity =
+                java.util.regex.Pattern.compile("(?m)^#define AGENT_OPTIONS_MAX (\\d+)$")
+                        .matcher(source);
+        assertTrue(capacity.find());
+        assertEquals(
+                Integer.parseInt(capacity.group(1)),
+                CoopServerJvmArguments.WINDOWS_AGENT_OPTIONS_MAX);
+    }
+
+    @Test
+    void validatesNativeBytesIncludingJarPrefixAndTerminator() throws Exception {
+        int valueBytes = CoopServerJvmArguments.WINDOWS_AGENT_OPTIONS_MAX - 28;
+        String exact = "config_dir=" + "a".repeat(valueBytes);
+        for (Charset encoding :
+                List.of(
+                        StandardCharsets.US_ASCII,
+                        StandardCharsets.UTF_8,
+                        Charset.forName("windows-1252"))) {
+            CoopServerJvmArguments.validateWindowsOptions(exact, encoding);
+            assertThrows(
+                    IOException.class,
+                    () -> CoopServerJvmArguments.validateWindowsOptions(exact + "a", encoding));
+        }
+        String unicode = "config_dir=" + "a".repeat(valueBytes - 2) + "Ä";
+        CoopServerJvmArguments.validateWindowsOptions(unicode, StandardCharsets.UTF_8);
+        assertThrows(
+                IOException.class,
+                () ->
+                        CoopServerJvmArguments.validateWindowsOptions(
+                                unicode + "a", StandardCharsets.UTF_8));
+        CoopServerJvmArguments.validateWindowsOptions(
+                "config_dir=" + "Ä".repeat(valueBytes), Charset.forName("windows-1252"));
+        assertThrows(
+                IOException.class,
+                () ->
+                        CoopServerJvmArguments.validateWindowsOptions(
+                                "config_dir=漢", Charset.forName("windows-1252")));
+        assertThrows(
+                IOException.class,
+                () ->
+                        CoopServerJvmArguments.validateWindowsOptions(
+                                "config_dir=\uD800", StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void rejectsOversizedWindowsOptionsWithoutLimitingJavaAgentPlatforms() throws Exception {
+        Path jar = agent();
+        var options =
+                Map.of("config_dir", "a".repeat(CoopServerJvmArguments.WINDOWS_AGENT_OPTIONS_MAX));
+        assertThrows(
+                IOException.class,
+                () -> CoopServerJvmArguments.prepare(command(), "Windows 11", jar, options));
+        for (String platform : List.of("Linux", "Mac OS X")) {
+            assertEquals(
+                    command().size() + 1,
+                    CoopServerJvmArguments.prepare(command(), platform, jar, options).size());
+        }
+    }
+
+    @Test
+    void nativeOverflowPreservesOriginalCommandWithoutLoggingSecrets() throws Exception {
+        var original = command();
+        original.add("-adminpassword");
+        original.add("private-not-logged");
+        var saved = new java.util.HashMap<>(Agent.arguments);
+        var stdout = System.out;
+        var bytes = new java.io.ByteArrayOutputStream();
+        String os = System.getProperty("os.name");
+        try {
+            System.setProperty("os.name", "Windows 11");
+            System.setOut(new java.io.PrintStream(bytes, true, StandardCharsets.UTF_8));
+            Agent.arguments.clear();
+            Agent.arguments.put(
+                    "config_dir", "a".repeat(CoopServerJvmArguments.WINDOWS_AGENT_OPTIONS_MAX));
+            assertSame(original, CoopServerJvmArguments.inherit(original));
+            assertFalse(bytes.toString(StandardCharsets.UTF_8).contains("private-not-logged"));
+        } finally {
+            Agent.arguments.clear();
+            Agent.arguments.putAll(saved);
+            System.setOut(stdout);
+            System.setProperty("os.name", os);
+        }
+    }
 
     private List<String> command() {
         return new ArrayList<>(
