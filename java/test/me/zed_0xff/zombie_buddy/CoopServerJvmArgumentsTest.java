@@ -25,15 +25,15 @@ class CoopServerJvmArgumentsTest {
     @TempDir Path tempDir;
 
     @Test
-    void nativeCapacityMatchesWindowsLoader() throws Exception {
+    void nativeCapacityCoversWindowsForwardingLimit() throws Exception {
         String source = Files.readString(Path.of("..", "c", "windows", "zbNative.c"));
         var capacity =
                 java.util.regex.Pattern.compile("(?m)^#define AGENT_OPTIONS_MAX (\\d+)$")
                         .matcher(source);
         assertTrue(capacity.find());
-        assertEquals(
-                Integer.parseInt(capacity.group(1)),
-                CoopServerJvmArguments.WINDOWS_AGENT_OPTIONS_MAX);
+        assertTrue(
+                CoopServerJvmArguments.WINDOWS_AGENT_OPTIONS_MAX <= Integer.parseInt(capacity.group(1)),
+                "The Java forwarding limit must not exceed the native buffer capacity");
     }
 
     @Test

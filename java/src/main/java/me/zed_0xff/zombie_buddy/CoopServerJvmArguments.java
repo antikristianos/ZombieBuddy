@@ -14,7 +14,7 @@ import java.util.Map;
 
 /** Shares the client's ZombieBuddy approval settings with the local Coop child JVM. */
 public final class CoopServerJvmArguments {
-    // Keep synchronized with AGENT_OPTIONS_MAX in c/windows/zbNative.c.
+    // Conservative limit supported by existing loaders; newer native buffers may be larger.
     static final int WINDOWS_AGENT_OPTIONS_MAX = 2048;
     private static final List<String> SHARED_OPTIONS =
             List.of("policy", "allow_unsigned_mods", "frontend", "config_dir", "verbosity");
