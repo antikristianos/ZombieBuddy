@@ -45,6 +45,11 @@ if(($imports|Sort-Object) -join ',' -ne 'KERNEL32.DLL,USER32.DLL'){throw 'Unexpe
 foreach($entry in @('Agent_OnAttach','Agent_OnLoad','Agent_OnUnload')) {
     if($pe -notmatch ('(?m)^\s+\d+\s+\w+\s+\w+\s+'+[regex]::Escape($entry)+'\s*$')){throw "Missing native agent export $entry"}
 }
+if([IO.File]::ReadAllText((Join-Path $source 'zbNative.c')) -notmatch '(?m)^#define AGENT_OPTIONS_MAX 4096\r?$'){throw 'Native boundary fixtures require a 4096-byte loader'}
+Run $cl ($flags+@(('/Fo'+(Join-Path $work 'NativeOptionsProbe.obj')),(Join-Path $source 'tests/NativeOptionsProbe.c'))) 'compile-native-options'
+$optionsExe=Join-Path $work 'NativeOptionsProbe.exe'
+Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64',('/OUT:'+$optionsExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeOptionsProbe.obj'),'kernel32.lib','user32.lib') 'link-native-options'
+Run $optionsExe @() 'native-options'
 [IO.Directory]::CreateDirectory((Join-Path $work 'classes'))|Out-Null
 $classes=Join-Path $work 'classes'
 if(-not $AgentJar){throw 'Provide -AgentJar from an unmodified ZombieBuddy release'}; $jar=(Resolve-Path -LiteralPath $AgentJar).Path
@@ -99,6 +104,20 @@ foreach($case in @('original-clean','original-leftovers','guard-clean','guard-le
         }
     } finally {Pop-Location}
 }
+# Exercise both sides of the native byte boundary through the real bundled JVM.
+$boundaryStage=Join-Path $work 'cases/guard-clean'
+Push-Location $boundaryStage
+try {
+    $boundaryRuntime=Join-Path $boundaryStage 'jre64/bin'
+    Run (Join-Path $boundaryStage 'NativeGuardHost.exe') @($boundaryRuntime,(Join-Path $boundaryStage 'zbNative.dll'),$cp,'options-exact') 'options-exact'
+    $previous=$ErrorActionPreference; $ErrorActionPreference='Continue'
+    $output=& (Join-Path $boundaryStage 'NativeGuardHost.exe') $boundaryRuntime (Join-Path $boundaryStage 'zbNative.dll') $cp 'options-overflow' 2>&1
+    $code=$LASTEXITCODE; $ErrorActionPreference=$previous
+    $text=@($output|ForEach-Object {"$_"}) -join "`n"
+    [IO.File]::WriteAllText((Join-Path $work 'options-overflow.log'),$text,$utf8)
+    if($code -eq 0 -or $text -match 'PASS native guard:'){throw '4097-byte native payload was not refused'}
+    Write-Output 'PASS actual native option boundary: 4096 bytes intact; 4097 refused before agent main'
+} finally {Pop-Location}
 # Missing canonical instrument.dll must not fall back to a root copy.
 $missing=Join-Path $work 'missing-runtime-dependency'
 [IO.Directory]::CreateDirectory((Join-Path $missing 'runtime/server'))|Out-Null

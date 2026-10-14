@@ -16,6 +16,12 @@ public final class NativeGuardProbe {
             String[] parts = pair.split("=", 2);
             if (!parts[1].equals(Agent.arguments.get(parts[0]))) throw new AssertionError("Option lost: " + pair);
         }
+        if (args[1].equals("options-exact")) {
+            int fixed = "ZombieBuddy.jar=experimental,policy=deny-new,allow_unsigned_mods=false,frontend=console,config_dir=./config,padding=".length();
+            if (!"a".repeat(4096 - fixed - 1).equals(Agent.arguments.get("padding")))
+                throw new AssertionError("Exact-capacity options were truncated or changed");
+            System.out.println("PASS actual native options: full 4096-byte payload received intact");
+        }
         try {
             InetAddress.getByName("localhost");
             try (SocketChannel channel = SocketChannel.open()) {

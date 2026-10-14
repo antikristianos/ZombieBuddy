@@ -8,6 +8,7 @@ static WCHAR libraryPath[32768];
 static WCHAR loadedJvmPath[32768];
 static char agentOption[65536], classpathOption[65536];
 static JavaVMOption options[6];
+static int agentTailOffset;
 
 static void log_message(const char *message) {
     DWORD written;
@@ -74,7 +75,19 @@ void mainCRTStartup(void) {
     }
     lstrcpyA(agentOption, "-agentpath:");
     if (!native_option(args[2], agentOption + lstrlenA(agentOption), 65000)) ExitProcess(95);
+    agentTailOffset = lstrlenA(agentOption) + 1;
     lstrcatA(agentOption, "=experimental,policy=deny-new,allow_unsigned_mods=false,frontend=console,config_dir=./config");
+    if (lstrcmpW(args[4], L"options-exact") == 0 || lstrcmpW(args[4], L"options-overflow") == 0) {
+        int cursor;
+        int target;
+        volatile char* fill = agentOption;
+        lstrcatA(agentOption, ",padding=");
+        target = agentTailOffset + 4096 - lstrlenA("ZombieBuddy.jar") - 2;
+        if (lstrcmpW(args[4], L"options-overflow") == 0) target++;
+        cursor = lstrlenA(agentOption);
+        while (cursor < target) fill[cursor++] = 'a';
+        agentOption[cursor] = 0;
+    }
     lstrcpyA(classpathOption, "-Djava.class.path=");
     if (!native_option(args[3], classpathOption + lstrlenA(classpathOption), 65000)) ExitProcess(96);
     options[0].optionString = "-Xms32m";

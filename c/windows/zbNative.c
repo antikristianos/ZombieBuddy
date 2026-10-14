@@ -5,7 +5,8 @@
 HMODULE hOrig = NULL;
 
 #define ZB_JAR "ZombieBuddy.jar"
-#define AGENT_OPTIONS_MAX 2048
+// Total payload capacity, including the JAR prefix and trailing NUL.
+#define AGENT_OPTIONS_MAX 4096
 
 // Minimal DllMain to prevent CRT initialization
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
@@ -94,6 +95,20 @@ int build_agent_options(const char* tail, char* out, int outSize) {
     return 1;
 }
 
+/* Keep the larger option buffer off the stack in this CRT-free loader. */
+int invoke_agent(int (*entry)(void*, char*, void*), void* jvm, char* tail, void* reserved) {
+    int result = -1;
+    char* agentOptions = HeapAlloc(GetProcessHeap(), 0, AGENT_OPTIONS_MAX);
+    if (!agentOptions) {
+        write_msg("[zbNative] Error: cannot allocate agent options\n");
+        return -1;
+    }
+    if (build_agent_options(tail, agentOptions, AGENT_OPTIONS_MAX))
+        result = entry(jvm, agentOptions, reserved);
+    HeapFree(GetProcessHeap(), 0, agentOptions);
+    return result;
+}
+
 __declspec(dllexport) int Agent_OnLoad(void* jvm, char* tail, void* reserved) {
     if (hOrig == NULL) {
         init_instrument_dll();
@@ -105,12 +120,7 @@ __declspec(dllexport) int Agent_OnLoad(void* jvm, char* tail, void* reserved) {
     // Check for pending update before loading the agent
     check_and_apply_update(ZB_JAR);
 
-    char agentOptions[AGENT_OPTIONS_MAX];
-    if (!build_agent_options(tail, agentOptions, sizeof(agentOptions))) {
-        return -1;
-    }
-
-    return pAgent_OnLoad(jvm, agentOptions, reserved);
+    return invoke_agent(pAgent_OnLoad, jvm, tail, reserved);
 }
 
 __declspec(dllexport) int Agent_OnAttach(void* jvm, char* args, void* reserved) {
@@ -121,12 +131,7 @@ __declspec(dllexport) int Agent_OnAttach(void* jvm, char* args, void* reserved) 
         return -1;
     }
 
-    char agentOptions[AGENT_OPTIONS_MAX];
-    if (!build_agent_options(args, agentOptions, sizeof(agentOptions))) {
-        return -1;
-    }
-
-    return pAgent_OnAttach(jvm, agentOptions, reserved);
+    return invoke_agent(pAgent_OnAttach, jvm, args, reserved);
 }
 
 __declspec(dllexport) void Agent_OnUnload(void* jvm) {
@@ -140,4 +145,3 @@ __declspec(dllexport) void Agent_OnUnload(void* jvm) {
     FreeLibrary(hOrig);
     hOrig = NULL;
 }
-
