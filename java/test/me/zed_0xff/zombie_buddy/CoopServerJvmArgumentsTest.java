@@ -87,27 +87,33 @@ class CoopServerJvmArgumentsTest {
     }
 
     @Test
-    void nativeOverflowPreservesOriginalCommandWithoutLoggingSecrets() throws Exception {
-        var original = command();
-        original.add("-adminpassword");
-        original.add("private-not-logged");
-        var saved = new java.util.HashMap<>(Agent.arguments);
-        var stdout = System.out;
-        var bytes = new java.io.ByteArrayOutputStream();
-        String os = System.getProperty("os.name");
+    void nativeOverflowFromLoadedAgentPreservesOriginalCommandWithoutLoggingSecrets() throws Exception {
+        Path builtAgent = Path.of(System.getProperty("zb.test.agentJar"));
+        assertTrue(Files.isRegularFile(builtAgent), "The actual built agent JAR is required");
+        Path loadedAgent = Files.copy(builtAgent, tempDir.resolve("ZombieBuddy probe Ä.jar"));
+        Path config = Files.createDirectory(tempDir.resolve("config"));
+        String classpath = loadedAgent + java.io.File.pathSeparator
+                + System.getProperty("zb.test.probeClasspath");
+        String javaExecutable = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).startsWith("windows")
+                ? "java.exe" : "java";
+        Path output = tempDir.resolve("native-overflow-probe.log");
+        Process process = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", javaExecutable).toString(),
+                "-Xverify:all", "-Djava.awt.headless=true",
+                "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
+                "-javaagent:" + loadedAgent + "=policy=deny-new,frontend=console,config_dir=" + config,
+                "-cp", classpath, CoopNativeOverflowProbe.class.getName(), loadedAgent.toString())
+                .redirectErrorStream(true).redirectOutput(output.toFile()).start();
         try {
-            System.setProperty("os.name", "Windows 11");
-            System.setOut(new java.io.PrintStream(bytes, true, StandardCharsets.UTF_8));
-            Agent.arguments.clear();
-            Agent.arguments.put(
-                    "config_dir", "a".repeat(CoopServerJvmArguments.WINDOWS_AGENT_OPTIONS_MAX));
-            assertSame(original, CoopServerJvmArguments.inherit(original));
-            assertFalse(bytes.toString(StandardCharsets.UTF_8).contains("private-not-logged"));
+            assertTrue(process.waitFor(30, TimeUnit.SECONDS), "Loaded-agent probe timed out");
+            String log = Files.readString(output, StandardCharsets.UTF_8);
+            assertEquals(0, process.exitValue(), log);
+            assertTrue(log.contains("PASS actual agent premain and native-option overflow fallback"), log);
+            assertFalse(log.contains("private-not-logged"), "Admin password must not appear in logs");
+            assertFalse(log.contains("option-value-not-for-logs"), "Forwarded values must not appear in logs");
+            log.lines().filter(line -> line.startsWith("PASS actual agent premain")).forEach(System.out::println);
         } finally {
-            Agent.arguments.clear();
-            Agent.arguments.putAll(saved);
-            System.setOut(stdout);
-            System.setProperty("os.name", os);
+            if (process.isAlive()) process.destroyForcibly();
         }
     }
 

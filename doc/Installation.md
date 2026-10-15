@@ -217,6 +217,21 @@ servers still need their own agent installation and launch settings. If the
 Coop command cannot be prepared safely, ZombieBuddy warns and preserves the
 original launch; it never logs the command's admin password.
 
+On Windows, forwarded ZombieBuddy options are limited to **2048 bytes**, including
+the internal `ZombieBuddy.jar=` prefix and terminating NUL byte. This conservative
+limit also works with newer native loaders that provide a larger buffer. It is a
+byte limit in the native platform encoding, so non-ASCII characters can use more
+than one byte. It applies only to the five shared options listed above, not to
+the full JVM command line, memory/GC arguments or the Coop admin password.
+
+If those options exceed the limit or cannot be represented in that encoding,
+ZombieBuddy keeps the original command and logs a warning without option values
+or passwords. The child then receives no automatically forwarded agent; preserving
+the launch does not make agent-dependent Java mods work without it. Shorten
+`config_dir` or other forwarded values, or use a dedicated server with its own
+ZombieBuddy installation. Forwarding remains enabled by default for client-hosted
+Coop because its server JVM needs the agent independently of the client.
+
 ---
 
 ## Verifying Installation
