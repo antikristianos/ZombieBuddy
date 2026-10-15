@@ -104,4 +104,49 @@ class ApprovalChoicesTest {
         assertEquals(Boolean.FALSE, entry.decision);
         assertFalse(entry.flags.has(MF_PERSIST | MF_TRUST_AUTHOR));
     }
+
+    @Test
+    void clearReportsActualRemovalIncludingDuplicateStoredHashes() {
+        var entry = ApprovalDialogProbe.entry("changed", null, MF_PERSIST, null, null);
+        var old = new ModApprovalsStore.ModEntry("changed", null, entry.sha256, true, "before", null);
+        var stored = new ArrayList<>(List.of(old, old));
+        assertTrue(ApprovalChoices.applyClears(List.of(entry), stored, id -> fail("Unsigned row cannot untrust")));
+        assertTrue(stored.isEmpty());
+        assertFalse(ApprovalChoices.applyClears(List.of(entry), stored, id -> fail("No-op cannot untrust")));
+        assertFalse(ApprovalChoices.applyClears(null, stored, id -> fail("Null batch cannot untrust")));
+        assertFalse(ApprovalChoices.applyClears(List.of(), stored, id -> fail("Empty batch cannot untrust")));
+    }
+
+    @Test
+    void loaderMarksRemovalDirtyAndPreservesExistingDirtyState() throws Exception {
+        var storedField = Loader.class.getDeclaredField("g_storedEntries"); storedField.setAccessible(true);
+        var dirtyField = Loader.class.getDeclaredField("g_modApprovalsDirty"); dirtyField.setAccessible(true);
+        var sessionField = Loader.class.getDeclaredField("g_sessionJarDecisions"); sessionField.setAccessible(true);
+        Object previousStored = storedField.get(null); boolean previousDirty = dirtyField.getBoolean(null);
+        var session = (JarDecisionTable)sessionField.get(null);
+        try {
+            for (boolean alreadyDirty : List.of(false, true)) {
+                for (String action : List.of("matched", "absent", "blocked")) {
+                    var entry = ApprovalDialogProbe.entry("dirty-" + action, null, MF_PERSIST,
+                            action.equals("blocked") ? new JarBatchApprovalProtocol.Entry.ZBSignature(false, null, "invalid") : null, null);
+                    Boolean previousSession = session.get(entry.sha256);
+                    try {
+                        var stored = new ArrayList<ModApprovalsStore.ModEntry>();
+                        if (!action.equals("absent")) stored.add(new ModApprovalsStore.ModEntry("old", null, entry.sha256, true, "before", null));
+                        storedField.set(null, stored); dirtyField.setBoolean(null, alreadyDirty);
+                        Loader.applyBatchApprovalLines(List.of(entry), new JarDecisionTable());
+                        assertEquals(alreadyDirty || action.equals("matched"), dirtyField.getBoolean(null));
+                        assertEquals(action.equals("blocked") ? 1 : 0, stored.size());
+                        assertEquals(Boolean.FALSE, entry.decision);
+                        assertFalse(entry.flags.has(MF_PERSIST));
+                    } finally {
+                        session.hashes().remove(entry.sha256);
+                        if (previousSession != null) session.put(entry.sha256, previousSession);
+                    }
+                }
+            }
+        } finally {
+            storedField.set(null, previousStored); dirtyField.setBoolean(null, previousDirty);
+        }
+    }
 }

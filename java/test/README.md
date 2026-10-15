@@ -17,3 +17,14 @@ output directory as its sole argument. JVM options are `-Xverify:all`,
 The native library must match the host OS/architecture. This check starts no game or OpenGL
 window; its native draw/mouse assumptions still make it an integration test. It does not
 establish in-game layout, focus, or client/Coop/dedicated acceptance.
+
+`ApprovalPersistenceProbe.main` is a separate, non-graphics integration check. It runs the real
+`Loader.loadMods()` path with isolated Vanilla mod metadata, the actual dialog response/JSON
+protocol and the original dirty-bit save gate. Only initial fixture setup writes the store
+directly; there is no manual save after a reset. It covers sole saved Allow/Deny resets,
+preservation of unrelated records, Save off, Cancel, missing hashes, blocked resets and untouched
+rows. Fresh child JVMs verify that cleared decisions are requested again without an implicit
+denial being written back. HTTP is replaced with local fixtures; no game/server is started.
+Run it explicitly with the same classpath and disposable output argument, using `-Xverify:all`;
+native-access/library-path options are not needed. The focused JUnit tests separately check
+change reporting and the loader's dirty flag, including preserving an already dirty state.

@@ -86,14 +86,16 @@ public final class ApprovalChoices {
      * Consume this transient marker before ordinary launch processing; it must never reach the store.
      * Missing/invalid signature metadata cannot clear approvals or author trust. The marker still
      * becomes a nonpersistent denial for this launch, with existing stored decisions preserved.
+     * @return true only when a stored hash record was removed; the loader must mark approvals dirty.
      */
-    public static void applyClears(List<JarBatchApprovalProtocol.Entry> entries, List<ModApprovalsStore.ModEntry> stored,
+    public static boolean applyClears(List<JarBatchApprovalProtocol.Entry> entries, List<ModApprovalsStore.ModEntry> stored,
             Consumer<SteamWorkshop.SteamID64> removeTrustedAuthor) {
-        if (entries == null) return;
+        if (entries == null) return false;
+        boolean changed = false;
         for (var entry : entries) {
             if (entry == null || entry.decision != null || entry.flags == null || !entry.flags.has(MF_PERSIST)) continue;
             if (entry.zbs != null && !entry.zbs.invalid() && entry.steamBan == null && !Utils.isBlank(entry.sha256)) {
-                stored.removeIf(old -> old != null && entry.sha256.equals(old.jarHash));
+                changed |= stored.removeIf(old -> old != null && entry.sha256.equals(old.jarHash));
                 if (entry.zbs.valid() && entry.zbs.authorSteamId() != null) {
                     removeTrustedAuthor.accept(entry.zbs.authorSteamId());
                 }
@@ -101,5 +103,6 @@ public final class ApprovalChoices {
             entry.decision = false;
             entry.flags = entry.flags.without(MF_PERSIST | MF_TRUST_AUTHOR);
         }
+        return changed;
     }
 }
