@@ -76,4 +76,32 @@ class ApprovalChoicesTest {
         assertEquals(Boolean.FALSE, entry.decision);
         assertFalse(entry.flags.has(MF_PERSIST));
     }
+
+    @Test
+    void missingSignatureBlocksDirectSelectionAndPersistence() {
+        for (String json : List.of("{\"flags\":8}", "{\"flags\":8,\"zbs\":null}")) {
+            var entry = ZBGson.PRETTY.fromJson(json, JarBatchApprovalProtocol.Entry.class);
+            assertNull(entry.zbs, "Actual Gson bypasses Entry's constructor defaults");
+            var choices = assertDoesNotThrow(() -> new ApprovalChoices(List.of(entry)));
+            assertFalse(choices.toggle(0, true));
+            assertFalse(choices.shouldPersist(0, true));
+            assertFalse(choices.toggle(0, false));
+            assertFalse(choices.shouldPersist(0, true));
+            choices.finish(List.of(entry), true);
+            assertNull(entry.decision, "Blocked selection must not create an explicit choice/reset");
+        }
+    }
+
+    @Test
+    void missingSignatureResetPreservesSavedDecisionAndTrust() {
+        var entry = ZBGson.PRETTY.fromJson("{\"sha256\":\"keep-hash\",\"flags\":72,\"zbs\":null}",
+                JarBatchApprovalProtocol.Entry.class);
+        var old = new ModApprovalsStore.ModEntry("keep", null, "keep-hash", true, "before", null);
+        var stored = new ArrayList<>(List.of(old));
+        assertDoesNotThrow(() -> ApprovalChoices.applyClears(List.of(entry), stored,
+                id -> fail("Missing metadata must never revoke author trust")));
+        assertEquals(List.of(old), stored);
+        assertEquals(Boolean.FALSE, entry.decision);
+        assertFalse(entry.flags.has(MF_PERSIST | MF_TRUST_AUTHOR));
+    }
 }

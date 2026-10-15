@@ -9,7 +9,10 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import static me.zed_0xff.zombie_buddy.ModFlags.*;
 
-/** Exercises the packaged dialog, actual ImGui mouse events and original persistence path. */
+/**
+ * Explicit integration probe: main uses native ImGui mouse/draw data and the packaged persistence path.
+ * Normal JUnit runs call only stateTests(), which needs no native graphics context. See test/README.md.
+ */
 public final class ApprovalDialogProbe {
     static int checks;
     static final Class<?> DIALOG;

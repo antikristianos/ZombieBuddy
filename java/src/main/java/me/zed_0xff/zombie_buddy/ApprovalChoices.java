@@ -28,7 +28,8 @@ public final class ApprovalChoices {
             initialTrust[i] = trust[i] = entry.flags.has(MF_TRUST_AUTHOR);
             choice[i] = Boolean.TRUE.equals(entry.decision) ? Boolean.TRUE
                     : entry.flags.has(MF_PERSIST) && Boolean.FALSE.equals(entry.decision) ? Boolean.FALSE : null;
-            blocked[i] = entry.zbs.invalid() || entry.steamBan != null;
+            // IPC readers reject missing metadata; also fail closed for direct callers.
+            blocked[i] = entry.zbs == null || entry.zbs.invalid() || entry.steamBan != null;
         }
     }
 
@@ -80,13 +81,18 @@ public final class ApprovalChoices {
         return entries;
     }
 
-    /** Called before the original loader applies launch decisions and persists its normal change diff. */
+    /**
+     * Contract: null decision + MF_PERSIST means remove the previous saved decision, not persist a deny.
+     * Consume this transient marker before ordinary launch processing; it must never reach the store.
+     * Missing/invalid signature metadata cannot clear approvals or author trust. The marker still
+     * becomes a nonpersistent denial for this launch, with existing stored decisions preserved.
+     */
     public static void applyClears(List<JarBatchApprovalProtocol.Entry> entries, List<ModApprovalsStore.ModEntry> stored,
             Consumer<SteamWorkshop.SteamID64> removeTrustedAuthor) {
         if (entries == null) return;
         for (var entry : entries) {
             if (entry == null || entry.decision != null || entry.flags == null || !entry.flags.has(MF_PERSIST)) continue;
-            if (!entry.zbs.invalid() && entry.steamBan == null && !Utils.isBlank(entry.sha256)) {
+            if (entry.zbs != null && !entry.zbs.invalid() && entry.steamBan == null && !Utils.isBlank(entry.sha256)) {
                 stored.removeIf(old -> old != null && entry.sha256.equals(old.jarHash));
                 if (entry.zbs.valid() && entry.zbs.authorSteamId() != null) {
                     removeTrustedAuthor.accept(entry.zbs.authorSteamId());
