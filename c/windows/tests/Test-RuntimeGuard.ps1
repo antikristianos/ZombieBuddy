@@ -50,6 +50,10 @@ Run $cl ($flags+@(('/Fo'+(Join-Path $work 'NativeOptionsProbe.obj')),(Join-Path 
 $optionsExe=Join-Path $work 'NativeOptionsProbe.exe'
 Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64',('/OUT:'+$optionsExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeOptionsProbe.obj'),'kernel32.lib','user32.lib') 'link-native-options'
 Run $optionsExe @() 'native-options'
+Run $cl ($flags+@(('/Fo'+(Join-Path $work 'NativeIdentityProbe.obj')),(Join-Path $source 'tests/NativeIdentityProbe.c'))) 'compile-native-identity'
+$identityExe=Join-Path $work 'NativeIdentityProbe.exe'
+Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64',('/OUT:'+$identityExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeIdentityProbe.obj'),'kernel32.lib','user32.lib') 'link-native-identity'
+Run $identityExe @() 'native-identity'
 [IO.Directory]::CreateDirectory((Join-Path $work 'classes'))|Out-Null
 $classes=Join-Path $work 'classes'
 if(-not $AgentJar){throw 'Provide -AgentJar from an unmodified ZombieBuddy release'}; $jar=(Resolve-Path -LiteralPath $AgentJar).Path
@@ -61,7 +65,7 @@ Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOL
 if(-not $OriginalDll){$OriginalDll=Join-Path $GameRoot 'zbNative.dll'}; $original=(Resolve-Path -LiteralPath $OriginalDll).Path
 if((Get-FileHash -LiteralPath $original).Hash -ne 'C2AE9335E717EE24B2F4A40D1A3BF77F1519762A72A0459E766A2BBAFC077F6C'){throw 'Expected the known original native baseline'}
 $runtime=Join-Path $GameRoot 'jre64/bin'
-foreach($case in @('original-clean','original-leftovers','guard-clean','guard-leftovers','guard-preloaded','guard-invalid-leftovers',('guard Unicode '+[char]0x00C4+' spaces'))) {
+foreach($case in @('original-clean','original-leftovers','guard-clean','guard-leftovers','guard-preloaded','guard-invalid-leftovers','guard-duplicate-jvm','guard-alias',('guard Unicode '+[char]0x00C4+' spaces'))) {
     $stage=Join-Path $work ('cases/'+$case)
     [IO.Directory]::CreateDirectory($stage)|Out-Null
     # Reference the entire real runtime read-only; never write through this junction.
@@ -79,6 +83,10 @@ foreach($case in @('original-clean','original-leftovers','guard-clean','guard-le
     if($case -eq 'guard-invalid-leftovers') {
         foreach($name in @('java.dll','instrument.dll')){[IO.File]::WriteAllText((Join-Path $stage $name),'Deliberately invalid test-only DLL',$utf8)}
     }
+    if($case -eq 'guard-duplicate-jvm') {
+        [IO.Directory]::CreateDirectory((Join-Path $stage 'foreign/server'))|Out-Null
+        Copy-Item -LiteralPath (Join-Path $runtime 'server/jvm.dll') -Destination (Join-Path $stage 'foreign/server/jvm.dll') -Force
+    }
     Push-Location $stage
     try {
         $mode=if($case -eq 'original-leftovers'){'reproduce'}else{'verify'}
@@ -87,6 +95,18 @@ foreach($case in @('original-clean','original-leftovers','guard-clean','guard-le
         if($case -match 'Unicode'){$mode='unicode'}
         $arguments=@($caseRuntime,(Join-Path $stage 'zbNative.dll'),$cp,$mode)
         if($case -eq 'guard-preloaded'){$arguments+='preload'}
+        if($case -eq 'guard-duplicate-jvm'){$arguments+=@('duplicate-jvm',(Join-Path $stage 'foreign/server/jvm.dll'))}
+        if($case -eq 'guard-alias'){$arguments+=@('alias',$runtime)}
+        if($case -eq 'guard-duplicate-jvm') {
+            $previous=$ErrorActionPreference; $ErrorActionPreference='Continue'
+            $output=& (Join-Path $stage 'NativeGuardHost.exe') @arguments 2>&1
+            $code=$LASTEXITCODE; $ErrorActionPreference=$previous
+            $text=@($output|ForEach-Object {"$_"}) -join "`n"
+            [IO.File]::WriteAllText((Join-Path $work ($case+'.log')),$text,$utf8)
+            if($code -ne 1 -or $text -notmatch 'PASS duplicate JVM fixture:' -or $text -notmatch '\[ZB-NATIVE\] JVM DLL guard: Multiple JVM DLL instances are already loaded\.'){throw 'Two loaded JVMs were not rejected before dependency loading'}
+            Write-Output 'PASS duplicate JVM refusal: two mapped copies rejected; no Java/instrument modules loaded'
+            continue
+        }
         if($case -eq 'guard-preloaded') {
             $previous=$ErrorActionPreference; $ErrorActionPreference='Continue'
             $output=& (Join-Path $stage 'NativeGuardHost.exe') @arguments 2>&1
@@ -101,6 +121,7 @@ foreach($case in @('original-clean','original-leftovers','guard-clean','guard-le
             if($mode -eq 'reproduce') {
                 if($text -notmatch '^REPRO original loader: real native encoding failure' -and $text -notmatch '(?m)^REPRO original loader: real native encoding failure'){throw 'Original failure was not reproduced'}
             } elseif($text -notmatch '(?m)^PASS native guard:') {throw 'Native verification marker missing'}
+            if($case -eq 'guard-alias' -and $text -notmatch 'PASS alias fixture:'){throw 'Alias reuse fixture was not proved'}
         }
     } finally {Pop-Location}
 }

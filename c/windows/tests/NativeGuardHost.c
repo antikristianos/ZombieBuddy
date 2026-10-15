@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
 #include <jni.h>
 
 static WCHAR libraryPath[32768];
@@ -21,6 +22,21 @@ static int utf8(const WCHAR *source, char *target, int capacity) {
 
 static int native_option(const WCHAR *source, char *target, int capacity) {
     return WideCharToMultiByte(CP_ACP, 0, source, -1, target, capacity, NULL, NULL);
+}
+
+/* Prove fixture preconditions before invoking the guard, without creating a VM. */
+static DWORD module_count(const WCHAR *name) {
+    MODULEENTRY32W entry;
+    DWORD result = 0, error;
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
+    if (snapshot == INVALID_HANDLE_VALUE) ExitProcess(108);
+    entry.dwSize = sizeof(entry);
+    if (!Module32FirstW(snapshot, &entry)) ExitProcess(109);
+    do { if (!lstrcmpiW(entry.szModule, name)) result++; } while (Module32NextW(snapshot, &entry));
+    error = GetLastError();
+    CloseHandle(snapshot);
+    if (error != ERROR_NO_MORE_FILES) ExitProcess(110);
+    return result;
 }
 
 void mainCRTStartup(void) {
@@ -59,13 +75,38 @@ void mainCRTStartup(void) {
     }
     create = (CreateVm)GetProcAddress(library, "JNI_CreateJavaVM");
     if (!create) ExitProcess(93);
-    if (count > 5 && lstrcmpW(args[5], L"guard-only") == 0) {
+    if (count > 6 && lstrcmpW(args[5], L"duplicate-jvm") == 0) {
+        HMODULE duplicate = LoadLibraryExW(args[6], NULL,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if (!duplicate || duplicate == library || module_count(L"jvm.dll") != 2
+            || module_count(L"java.dll") || module_count(L"instrument.dll")) ExitProcess(111);
+        log_message("PASS duplicate JVM fixture: two distinct mapped JVMs, no Java/instrument modules\n");
+    }
+    if (count > 5 && (!lstrcmpW(args[5], L"guard-only") || !lstrcmpW(args[5], L"duplicate-jvm"))) {
         HMODULE agent = LoadLibraryExW(args[2], NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
         if (!agent) ExitProcess(103);
         agentProc.raw = GetProcAddress(agent, "Agent_OnLoad");
         if (!agentProc.raw) ExitProcess(104);
-        /* Missing runtime dependency must fail before dereferencing this null VM. */
-        ExitProcess(agentProc.agent(NULL, NULL, NULL) == -1 ? 1 : 0);
+        /* Missing dependency / ambiguous JVM must fail before dereferencing NULL. */
+        jint result = agentProc.agent(NULL, NULL, NULL);
+        if (!lstrcmpW(args[5], L"duplicate-jvm")
+            && (module_count(L"java.dll") || module_count(L"instrument.dll"))) ExitProcess(112);
+        ExitProcess(result == -1 ? 1 : 0);
+    }
+    if (count > 6 && lstrcmpW(args[5], L"alias") == 0) {
+        HMODULE aliased, requested;
+        DWORD length;
+        lstrcpyW(libraryPath, args[6]); lstrcatW(libraryPath, L"\\java.dll");
+        aliased = LoadLibraryExW(libraryPath, NULL,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+        length = GetModuleFileNameW(aliased, loadedJvmPath, 32768);
+        if (!aliased || !length || length >= 32768 || lstrcmpiW(loadedJvmPath, libraryPath)) ExitProcess(113);
+        lstrcpyW(libraryPath, args[1]); lstrcatW(libraryPath, L"\\java.dll");
+        if (!lstrcmpiW(loadedJvmPath, libraryPath)) ExitProcess(115);
+        requested = LoadLibraryExW(libraryPath, NULL,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if (requested != aliased || module_count(L"java.dll") != 1 || module_count(L"jvm.dll") != 1) ExitProcess(114);
+        log_message("PASS alias fixture: different path, same reused Java module, one JVM\n");
     }
     if (count > 5 && lstrcmpW(args[5], L"preload") == 0) {
         DWORD length = GetModuleFileNameW(NULL, libraryPath, 32768);

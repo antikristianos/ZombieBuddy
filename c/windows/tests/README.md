@@ -1,5 +1,17 @@
 # Windows runtime-library regression tests
 
+## Protection contract
+
+The anchor is the already running JVM, resolved from its module handle, not a hardcoded game directory or the test staging path. Before loading Java/instrumentation dependencies, module enumeration must prove there is exactly one `jvm.dll`. A second mapped JVM is rejected even if it is byte-identical. Java/instrumentation modules must identify the physical files in that JVM's runtime directory; independent copies are conflicts. Junction/hardlink aliases of the same file are allowed when Windows reuses one mapped module. Multiple mapped instances remain conflicts, regardless of aliasing. This is an early dependency-selection guard, not authentication of the JVM installation or protection against concurrent hostile DLL injection.
+
+File comparisons use `GetFileInformationByHandleEx(FileIdInfo)` with the full 128-bit file ID and 64-bit volume serial number, following [Microsoft's identity contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info). The previous 64-bit file index is insufficient to establish uniqueness on ReFS. If opening a file or querying its identity fails, comparison fails closed; no path-string or 64-bit fallback is used. This adds an API requirement for FileIdInfo support on the runtime filesystem. Windows / Project Zomboid 42.21 is the tested target; a real ReFS installation was not tested.
+
+Two explicit host regressions exercise the distinction: `guard-duplicate-jvm` proves two separate mapped JVM handles and zero Java/instrumentation modules, invokes the guard without creating a VM, and requires refusal with those dependency modules still absent. `guard-alias` preloads the real runtime `java.dll` via its original path, proves a different junction path reuses that module, and then starts the actual JVM/agent successfully. Together with the existing eight cases, there are ten native-host cases.
+
+`NativeIdentityProbe.c` exercises the real comparator with controlled FileIdInfo responses and real open/closed handles. It checks differences in each of the 16 ID bytes, the upper volume bits, failed first/second queries, failed first/second opens and handle cleanup. These controlled responses test comparison width and failure handling, not actual ReFS behavior.
+
+## Running the tests
+
 These isolated tests start the real bundled JVM/agent, never a game or server main. They contrast the original loader with the guarded native candidate in executable directories containing no leftovers, copied Java/instrumentation DLLs, invalid DLLs and Unicode/spaces paths. They also reject a preloaded foreign Java DLL and a missing canonical runtime dependency without fallback. The actual native encoding exception is reproduced naturally; it is not injected.
 
 Requirements: Windows x64, MSVC x64 tools and Windows SDK, JDK 25, the installed Project Zomboid 42.21 runtime/game JAR, an unmodified official ZombieBuddy 2.3.4 release JAR and original native DLL (SHA-256 `C2AE9335E717EE24B2F4A40D1A3BF77F1519762A72A0459E766A2BBAFC077F6C`). The tests use only upstream agent APIs and bundled game JNA to verify loaded module identities.

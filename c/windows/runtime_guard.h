@@ -34,17 +34,24 @@ static int guard_fail(const char *reason, const WCHAR *path) {
     return 0;
 }
 
-/* File identity accepts equivalent junction/alias paths, but not copied files. */
+/* Compare all 128 file-ID bits: ReFS does not guarantee unique 64-bit IDs.
+ * Equivalent junction/hardlink paths are allowed; copied files are not. */
 static int same_runtime_file(const WCHAR *left, const WCHAR *right) {
-    BY_HANDLE_FILE_INFORMATION a, b;
+    FILE_ID_INFO a, b;
+    unsigned int i;
     HANDLE first = CreateFileW(left, FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
     HANDLE second = CreateFileW(right, FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
     int same = first != INVALID_HANDLE_VALUE && second != INVALID_HANDLE_VALUE
-        && GetFileInformationByHandle(first, &a) && GetFileInformationByHandle(second, &b)
-        && a.dwVolumeSerialNumber == b.dwVolumeSerialNumber
-        && a.nFileIndexHigh == b.nFileIndexHigh && a.nFileIndexLow == b.nFileIndexLow;
+        && GetFileInformationByHandleEx(first, FileIdInfo, &a, sizeof(a))
+        && GetFileInformationByHandleEx(second, FileIdInfo, &b, sizeof(b))
+        && a.VolumeSerialNumber == b.VolumeSerialNumber;
+    if (same) {
+        for (i = 0; i < sizeof(a.FileId.Identifier); i++) {
+            if (a.FileId.Identifier[i] != b.FileId.Identifier[i]) { same = 0; break; }
+        }
+    }
     if (first != INVALID_HANDLE_VALUE) CloseHandle(first);
     if (second != INVALID_HANDLE_VALUE) CloseHandle(second);
     return same;
@@ -91,6 +98,8 @@ static HMODULE load_runtime_instrument(void) {
     WCHAR *last;
     DWORD length;
     HMODULE instrument;
+    /* Anchor to the running JVM, not an installation/staging path. The module
+     * enumeration below rejects ambiguous multiple JVMs before loading deps. */
     HMODULE jvm = GetModuleHandleW(L"jvm.dll");
     if (!jvm) { guard_fail("Cannot locate the active jvm.dll.", NULL); return NULL; }
     length = GetModuleFileNameW(jvm, runtimeJavaPath, RUNTIME_PATH_CAPACITY);
