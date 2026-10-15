@@ -12,6 +12,20 @@ Two explicit host regressions exercise the distinction: `guard-duplicate-jvm` pr
 
 ## Running the tests
 
+The player-facing [Windows loader requirement](../../../doc/Installation.md#windows-native-loader-requirement) explains the mandatory FileIdInfo support and startup/attach refusal when identity queries fail. The tests simulate this failure; they do not establish compatibility with a particular unsupported filesystem.
+
+### Test build mechanics
+
+`NativeOptionsProbe.c`, `NativeIdentityProbe.c` and `NativeGuardOrderProbe.c` each build a separate executable from one translation unit that directly includes `zbNative.c`. Do not also link the production `zbNative.obj` into these executables or compile the static guard header as another translation unit. Their compile-time API wrappers apply only to the individual test executable and are absent from the production DLL.
+
+`NativeGuardHost.c` is a separate host executable that loads the actual candidate DLL and starts the bundled JVM for `NativeGuardProbe.java`; those real-host cases do not use the C probe wrappers.
+
+### Runtime DLL lifetime
+
+The loader deliberately retains its explicit `java.dll` reference for the process lifetime to keep JVM-owned native state available independently of the agent lifetime. `Agent_OnUnload` releases the agent's instrumentation handle; it does not release `runtimeJava`. Process teardown releases the remaining reference. This documents the existing ownership policy and adds no unload operation.
+
+### Cases and execution
+
 `NativeGuardOrderProbe.c` adds five fresh-process checks of the real guard with real JVM module enumeration and file handles. A successful control observes actual Java-then-instrumentation loading. A preloaded independent Java copy and `ERROR_NOT_SUPPORTED` on the first/second identity query must each stop before any guard-owned dependency load. A failure after the first Java load must stop before instrumentation loading. Compile-time wrappers count guard-owned `LoadLibraryExW` calls, validate their paths/search flags and delegate permitted loads to Windows; setup loads are separate. Only identity-query failure is injected. These are controlled ordering/error regressions, not a real unsupported-filesystem test.
 
 The existing identity comparator test also explicitly reports `ERROR_NOT_SUPPORTED` for failed queries. No unsupported-identity fallback is added.

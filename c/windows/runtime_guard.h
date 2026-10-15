@@ -5,6 +5,8 @@
 static WCHAR runtimeJavaPath[RUNTIME_PATH_CAPACITY];
 static WCHAR runtimeInstrumentPath[RUNTIME_PATH_CAPACITY];
 static WCHAR runtimeLoadedPath[RUNTIME_PATH_CAPACITY];
+/* Keep our java.dll reference for the process lifetime. Agent unload does not
+ * end the JVM's use of libjava/native state; process teardown releases it. */
 static HMODULE runtimeJava = NULL;
 
 static void guard_write(const char *message) {
@@ -89,6 +91,7 @@ static int check_runtime_modules(void) {
     } while (Module32NextW(snapshot, &entry));
     enumerationError = GetLastError();
     CloseHandle(snapshot);
+    /* Only normal end-of-list proves that every loaded module was inspected. */
     if (enumerationError != ERROR_NO_MORE_FILES)
         return guard_fail("ZB_GUARD_ENUMERATION", "Loaded-module enumeration did not complete.", NULL);
     if (javaCount > 1 || instrumentCount > 1 || jvmCount != 1)

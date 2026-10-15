@@ -142,6 +142,7 @@ __declspec(dllexport) void Agent_OnUnload(void* jvm) {
         pAgent_OnUnload(jvm);
     }
 
+    /* Release our instrumentation handle; runtimeJava stays held until process exit. */
     FreeLibrary(hOrig);
     hOrig = NULL;
 }

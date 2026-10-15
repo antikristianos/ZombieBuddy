@@ -57,6 +57,12 @@ For all available command-line parameters, see [CommandLine.md](CommandLine.md).
 
 ---
 
+## Windows native loader requirement
+
+The protected Windows loader requires `GetFileInformationByHandleEx(FileIdInfo)` support for its runtime DLL files. The operating system/filesystem must support the query, and access permissions must permit it. If identity cannot be inspected, including `ERROR_NOT_SUPPORTED`, the guard refuses agent initialization: a native-agent startup fails, or an attach attempt is rejected. There is no reduced-verification fallback or option to bypass this check.
+
+Keep the complete `[ZB-NATIVE] JVM DLL guard` startup message, including its error code, when reporting a failure. `ZB_GUARD_MODULE_IDENTITY` can mean an unreadable/unsupported identity as well as a different DLL file; it alone is not evidence that a DLL should be deleted. Keep the active runtime DLLs intact.
+
 ## Windows (Automated Installer)
 
 The easiest way to install ZombieBuddy on Windows is using the automated installer:
