@@ -46,7 +46,7 @@ void init_instrument_dll() {
     proc.raw = GetProcAddress(hOrig, "Agent_OnUnload");
     pAgent_OnUnload = proc.unload;
     if (!pAgent_OnAttach || !pAgent_OnLoad || !pAgent_OnUnload) {
-        guard_fail("Active runtime instrument.dll lacks agent exports.", runtimeInstrumentPath);
+        guard_fail("ZB_GUARD_AGENT_EXPORTS", "Active runtime instrument.dll lacks agent exports.", runtimeInstrumentPath);
         FreeLibrary(hOrig);
         hOrig = NULL;
         pAgent_OnAttach = NULL;

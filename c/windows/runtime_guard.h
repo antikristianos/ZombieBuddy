@@ -26,10 +26,12 @@ static void guard_write_path(const WCHAR *path) {
     }
 }
 
-static int guard_fail(const char *reason, const WCHAR *path) {
+/* Stable machine-readable codes complement the existing human-readable text. */
+static int guard_fail(const char *code, const char *reason, const WCHAR *path) {
     guard_write("[ZB-NATIVE] JVM DLL guard: ");
     guard_write(reason);
     if (path) { guard_write(" "); guard_write_path(path); }
+    guard_write(" [code="); guard_write(code); guard_write("]");
     guard_write("\n[ZB-NATIVE] Startup stopped. Close the game, remove leftover Java DLL copies outside the active runtime and verify game files with Steam. Keep runtime DLLs intact.\n");
     return 0;
 }
@@ -62,11 +64,11 @@ static int check_runtime_modules(void) {
     DWORD enumerationError;
     DWORD javaCount = 0, instrumentCount = 0, jvmCount = 0;
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
-    if (snapshot == INVALID_HANDLE_VALUE) return guard_fail("Cannot inspect loaded JVM DLLs.", NULL);
+    if (snapshot == INVALID_HANDLE_VALUE) return guard_fail("ZB_GUARD_SNAPSHOT", "Cannot inspect loaded JVM DLLs.", NULL);
     entry.dwSize = sizeof(entry);
     if (!Module32FirstW(snapshot, &entry)) {
         CloseHandle(snapshot);
-        return guard_fail("Cannot enumerate loaded JVM DLLs.", NULL);
+        return guard_fail("ZB_GUARD_ENUMERATION", "Cannot enumerate loaded JVM DLLs.", NULL);
     }
     do {
         const WCHAR *expected = NULL;
@@ -77,20 +79,20 @@ static int check_runtime_modules(void) {
             DWORD size = GetModuleFileNameW(entry.hModule, runtimeLoadedPath, RUNTIME_PATH_CAPACITY);
             if (!size || size >= RUNTIME_PATH_CAPACITY) {
                 CloseHandle(snapshot);
-                return guard_fail("Cannot resolve a loaded JVM DLL path.", NULL);
+                return guard_fail("ZB_GUARD_MODULE_PATH", "Cannot resolve a loaded JVM DLL path.", NULL);
             }
             if (!same_runtime_file(runtimeLoadedPath, expected)) {
                 CloseHandle(snapshot);
-                return guard_fail("Unexpected already-loaded JVM DLL:", runtimeLoadedPath);
+                return guard_fail("ZB_GUARD_MODULE_IDENTITY", "Unexpected already-loaded JVM DLL:", runtimeLoadedPath);
             }
         }
     } while (Module32NextW(snapshot, &entry));
     enumerationError = GetLastError();
     CloseHandle(snapshot);
     if (enumerationError != ERROR_NO_MORE_FILES)
-        return guard_fail("Loaded-module enumeration did not complete.", NULL);
+        return guard_fail("ZB_GUARD_ENUMERATION", "Loaded-module enumeration did not complete.", NULL);
     if (javaCount > 1 || instrumentCount > 1 || jvmCount != 1)
-        return guard_fail("Multiple JVM DLL instances are already loaded.", NULL);
+        return guard_fail("ZB_GUARD_MODULE_COUNT", "Multiple JVM DLL instances are already loaded.", NULL);
     return 1;
 }
 
@@ -101,10 +103,10 @@ static HMODULE load_runtime_instrument(void) {
     /* Anchor to the running JVM, not an installation/staging path. The module
      * enumeration below rejects ambiguous multiple JVMs before loading deps. */
     HMODULE jvm = GetModuleHandleW(L"jvm.dll");
-    if (!jvm) { guard_fail("Cannot locate the active jvm.dll.", NULL); return NULL; }
+    if (!jvm) { guard_fail("ZB_GUARD_JVM_MISSING", "Cannot locate the active jvm.dll.", NULL); return NULL; }
     length = GetModuleFileNameW(jvm, runtimeJavaPath, RUNTIME_PATH_CAPACITY);
     if (!length || length >= RUNTIME_PATH_CAPACITY) {
-        guard_fail("Cannot resolve the active JVM directory.", NULL); return NULL;
+        guard_fail("ZB_GUARD_JVM_PATH", "Cannot resolve the active JVM directory.", NULL); return NULL;
     }
     /* Supported Windows runtime layout: bin/server/jvm.dll (or bin/client/jvm.dll). */
     last = runtimeJavaPath + length;
@@ -112,11 +114,11 @@ static HMODULE load_runtime_instrument(void) {
     *last = 0;
     while (last > runtimeJavaPath && *last != L'\\') last--;
     if (lstrcmpiW(last + 1, L"server") && lstrcmpiW(last + 1, L"client")) {
-        guard_fail("Unsupported JVM directory:", runtimeJavaPath); return NULL;
+        guard_fail("ZB_GUARD_JVM_LAYOUT", "Unsupported JVM directory:", runtimeJavaPath); return NULL;
     }
     *last = 0;
     if (lstrlenW(runtimeJavaPath) + 16 >= RUNTIME_PATH_CAPACITY) {
-        guard_fail("Runtime DLL path is too long.", NULL); return NULL;
+        guard_fail("ZB_GUARD_PATH_LENGTH", "Runtime DLL path is too long.", NULL); return NULL;
     }
     lstrcpyW(runtimeInstrumentPath, runtimeJavaPath);
     lstrcatW(runtimeJavaPath, L"\\java.dll");
@@ -125,11 +127,11 @@ static HMODULE load_runtime_instrument(void) {
     /* Load the canonical java.dll first. Its state will be initialized by this JVM. */
     runtimeJava = LoadLibraryExW(runtimeJavaPath, NULL,
         LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (!runtimeJava) { guard_fail("Cannot load active runtime java.dll:", runtimeJavaPath); return NULL; }
+    if (!runtimeJava) { guard_fail("ZB_GUARD_JAVA_LOAD", "Cannot load active runtime java.dll:", runtimeJavaPath); return NULL; }
     if (!check_runtime_modules()) return NULL;
     instrument = LoadLibraryExW(runtimeInstrumentPath, NULL,
         LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (!instrument) { guard_fail("Cannot load active runtime instrument.dll:", runtimeInstrumentPath); return NULL; }
+    if (!instrument) { guard_fail("ZB_GUARD_INSTRUMENT_LOAD", "Cannot load active runtime instrument.dll:", runtimeInstrumentPath); return NULL; }
     if (!check_runtime_modules()) { FreeLibrary(instrument); return NULL; }
     return instrument;
 }

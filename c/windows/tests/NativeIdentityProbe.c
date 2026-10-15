@@ -16,7 +16,8 @@ static BOOL WINAPI probe_file_info(HANDLE file, FILE_INFO_BY_HANDLE_CLASS kind, 
     (void)file;
     if (kind != FileIdInfo || size != sizeof(*identity)) ExitProcess(20);
     query++;
-    if (query == failedQuery) return FALSE;
+    /* Unsupported FileIdInfo is a refusal, never permission to use path matching. */
+    if (query == failedQuery) { SetLastError(ERROR_NOT_SUPPORTED); return FALSE; }
     identity->VolumeSerialNumber = 1;
     for (i = 0; i < sizeof(identity->FileId.Identifier); i++) identity->FileId.Identifier[i] = (BYTE)i;
     if (query == 2) {
@@ -48,6 +49,6 @@ void mainCRTStartup(void) {
     failedQuery = 0; query = 0;
     if (same_runtime_file(missing, executable) || same_runtime_file(executable, missing) || query) ExitProcess(28);
     if (!GetProcessHandleCount(GetCurrentProcess(), &after) || before != after) ExitProcess(29);
-    guard_write("PASS file identity: all 128 ID bits, 64-bit volume, query/open failure refusal, handles closed\n");
+    guard_write("PASS file identity: all 128 ID bits, 64-bit volume, ERROR_NOT_SUPPORTED/open refusal, handles closed\n");
     ExitProcess(0);
 }

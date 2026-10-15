@@ -12,6 +12,31 @@ Two explicit host regressions exercise the distinction: `guard-duplicate-jvm` pr
 
 ## Running the tests
 
+`NativeGuardOrderProbe.c` adds five fresh-process checks of the real guard with real JVM module enumeration and file handles. A successful control observes actual Java-then-instrumentation loading. A preloaded independent Java copy and `ERROR_NOT_SUPPORTED` on the first/second identity query must each stop before any guard-owned dependency load. A failure after the first Java load must stop before instrumentation loading. Compile-time wrappers count guard-owned `LoadLibraryExW` calls, validate their paths/search flags and delegate permitted loads to Windows; setup loads are separate. Only identity-query failure is injected. These are controlled ordering/error regressions, not a real unsupported-filesystem test.
+
+The existing identity comparator test also explicitly reports `ERROR_NOT_SUPPORTED` for failed queries. No unsupported-identity fallback is added.
+
+## Stable guard failure codes
+
+Every guard refusal keeps its existing message prefix/text and appends `[code=ZB_GUARD_...]` on the same line. Successful startup adds no guard event. Codes describe the guard failure category, not a Windows `GetLastError` value. In particular, identity mismatch and an unreadable/unsupported identity share `ZB_GUARD_MODULE_IDENTITY`; that code alone does not prove a foreign copy.
+
+| Code                       | Meaning                                          |
+| -------------------------- | ------------------------------------------------ |
+| `ZB_GUARD_SNAPSHOT`        | Cannot create the loaded-module snapshot.        |
+| `ZB_GUARD_ENUMERATION`     | Cannot start or complete module enumeration.     |
+| `ZB_GUARD_MODULE_PATH`     | Cannot resolve a loaded dependency path.         |
+| `ZB_GUARD_MODULE_IDENTITY` | Dependency identity differs or cannot be read.   |
+| `ZB_GUARD_MODULE_COUNT`    | Missing/duplicate JVM or duplicate dependencies. |
+| `ZB_GUARD_JVM_MISSING`     | Cannot find the active JVM module.               |
+| `ZB_GUARD_JVM_PATH`        | Cannot resolve the active JVM path.              |
+| `ZB_GUARD_JVM_LAYOUT`      | JVM is outside the supported server/client form. |
+| `ZB_GUARD_PATH_LENGTH`     | Runtime dependency path exceeds capacity.        |
+| `ZB_GUARD_JAVA_LOAD`       | Active runtime Java library cannot be loaded.    |
+| `ZB_GUARD_INSTRUMENT_LOAD` | Active instrumentation library cannot be loaded. |
+| `ZB_GUARD_AGENT_EXPORTS`   | Instrumentation library lacks agent callbacks.   |
+
+The order probe's failure cases assert the identity code in their captured output. Existing real-host failure cases still exercise copied modules, duplicates and missing canonical dependencies with the unchanged refusal behavior.
+
 These isolated tests start the real bundled JVM/agent, never a game or server main. They contrast the original loader with the guarded native candidate in executable directories containing no leftovers, copied Java/instrumentation DLLs, invalid DLLs and Unicode/spaces paths. They also reject a preloaded foreign Java DLL and a missing canonical runtime dependency without fallback. The actual native encoding exception is reproduced naturally; it is not injected.
 
 Requirements: Windows x64, MSVC x64 tools and Windows SDK, JDK 25, the installed Project Zomboid 42.21 runtime/game JAR, an unmodified official ZombieBuddy 2.3.4 release JAR and original native DLL (SHA-256 `C2AE9335E717EE24B2F4A40D1A3BF77F1519762A72A0459E766A2BBAFC077F6C`). The tests use only upstream agent APIs and bundled game JNA to verify loaded module identities.

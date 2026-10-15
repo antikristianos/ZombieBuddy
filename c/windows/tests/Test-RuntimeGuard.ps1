@@ -54,6 +54,9 @@ Run $cl ($flags+@(('/Fo'+(Join-Path $work 'NativeIdentityProbe.obj')),(Join-Path
 $identityExe=Join-Path $work 'NativeIdentityProbe.exe'
 Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64',('/OUT:'+$identityExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeIdentityProbe.obj'),'kernel32.lib','user32.lib') 'link-native-identity'
 Run $identityExe @() 'native-identity'
+Run $cl ($flags+@(('/Fo'+(Join-Path $work 'NativeGuardOrderProbe.obj')),(Join-Path $source 'tests/NativeGuardOrderProbe.c'))) 'compile-native-order'
+$orderExe=Join-Path $work 'NativeGuardOrderProbe.exe'
+Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64',('/OUT:'+$orderExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeGuardOrderProbe.obj'),'kernel32.lib','user32.lib','shell32.lib') 'link-native-order'
 [IO.Directory]::CreateDirectory((Join-Path $work 'classes'))|Out-Null
 $classes=Join-Path $work 'classes'
 if(-not $AgentJar){throw 'Provide -AgentJar from an unmodified ZombieBuddy release'}; $jar=(Resolve-Path -LiteralPath $AgentJar).Path
@@ -124,6 +127,17 @@ foreach($case in @('original-clean','original-leftovers','guard-clean','guard-le
             if($case -eq 'guard-alias' -and $text -notmatch 'PASS alias fixture:'){throw 'Alias reuse fixture was not proved'}
         }
     } finally {Pop-Location}
+}
+# Observe the real guard's own load calls in five fresh processes. Setup loads
+# are separate; failures must stop before Java/instrumentation or before instrument.
+$orderRuntime=Join-Path $work 'cases/guard-clean/jre64/bin'
+$foreignJava=Join-Path $work 'cases/guard-preloaded/java.dll'
+foreach($mode in @('control','foreign','unsupported-first','unsupported-second','after-java')) {
+    $label='order-'+$mode
+    Run $orderExe @($orderRuntime,$foreignJava,$mode) $label
+    $orderText=[IO.File]::ReadAllText((Join-Path $work ($label+'.log')))
+    if($orderText -notmatch '(?m)^PASS guard order'){throw 'Guard order assertion missing'}
+    if($mode -ne 'control' -and $orderText -notmatch '\[code=ZB_GUARD_MODULE_IDENTITY\]'){throw 'Stable identity refusal code missing'}
 }
 # Exercise both sides of the native byte boundary through the real bundled JVM.
 $boundaryStage=Join-Path $work 'cases/guard-clean'
