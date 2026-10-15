@@ -57,6 +57,9 @@ Run $identityExe @() 'native-identity'
 Run $cl ($flags+@(('/Fo'+(Join-Path $work 'NativeGuardOrderProbe.obj')),(Join-Path $source 'tests/NativeGuardOrderProbe.c'))) 'compile-native-order'
 $orderExe=Join-Path $work 'NativeGuardOrderProbe.exe'
 Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64',('/OUT:'+$orderExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeGuardOrderProbe.obj'),'kernel32.lib','user32.lib','shell32.lib') 'link-native-order'
+Run $cl ($flags+@(('/Fo'+(Join-Path $work 'NativeCallbacksProbe.obj')),(Join-Path $source 'tests/NativeCallbacksProbe.c'))) 'compile-native-callbacks'
+$callbacksExe=Join-Path $work 'NativeCallbacksProbe.exe'
+Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64',('/OUT:'+$callbacksExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeCallbacksProbe.obj'),'kernel32.lib','user32.lib','shell32.lib') 'link-native-callbacks'
 [IO.Directory]::CreateDirectory((Join-Path $work 'classes'))|Out-Null
 $classes=Join-Path $work 'classes'
 if(-not $AgentJar){throw 'Provide -AgentJar from an unmodified ZombieBuddy release'}; $jar=(Resolve-Path -LiteralPath $AgentJar).Path
@@ -132,6 +135,7 @@ foreach($case in @('original-clean','original-leftovers','guard-clean','guard-le
 # are separate; failures must stop before Java/instrumentation or before instrument.
 $orderRuntime=Join-Path $work 'cases/guard-clean/jre64/bin'
 $foreignJava=Join-Path $work 'cases/guard-preloaded/java.dll'
+Run $callbacksExe @($orderRuntime) 'native-callbacks'
 foreach($mode in @('control','foreign','unsupported-first','unsupported-second','after-java')) {
     $label='order-'+$mode
     Run $orderExe @($orderRuntime,$foreignJava,$mode) $label

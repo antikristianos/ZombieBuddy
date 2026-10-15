@@ -16,7 +16,7 @@ The player-facing [Windows loader requirement](../../../doc/Installation.md#wind
 
 ### Test build mechanics
 
-`NativeOptionsProbe.c`, `NativeIdentityProbe.c` and `NativeGuardOrderProbe.c` each build a separate executable from one translation unit that directly includes `zbNative.c`. Do not also link the production `zbNative.obj` into these executables or compile the static guard header as another translation unit. Their compile-time API wrappers apply only to the individual test executable and are absent from the production DLL.
+`NativeOptionsProbe.c`, `NativeIdentityProbe.c`, `NativeGuardOrderProbe.c` and `NativeCallbacksProbe.c` each build a separate executable from one translation unit that directly includes `zbNative.c`. Do not also link the production `zbNative.obj` into these executables or compile the static guard header as another translation unit. Their compile-time API wrappers apply only to the individual test executable and are absent from the production DLL.
 
 `NativeGuardHost.c` is a separate host executable that loads the actual candidate DLL and starts the bundled JVM for `NativeGuardProbe.java`; those real-host cases do not use the C probe wrappers.
 
@@ -25,6 +25,8 @@ The player-facing [Windows loader requirement](../../../doc/Installation.md#wind
 The loader deliberately retains its explicit `java.dll` reference for the process lifetime to keep JVM-owned native state available independently of the agent lifetime. `Agent_OnUnload` releases the agent's instrumentation handle; it does not release `runtimeJava`. Process teardown releases the remaining reference. This documents the existing ownership policy and adds no unload operation.
 
 ### Cases and execution
+
+`NativeCallbacksProbe.c` checks callback state without creating a JVM. It loads actual runtime modules and exercises the real exported entry points/initialization, while controlling callback exports, an unavailable-JVM failure and observation of library release. Pending-JAR inspection is forced to "no update" so the probe cannot apply an update. Cases cover empty/repeated unload, stale callback state with a missing handle, failed load/attach initialization, three successful load/attach/unload cycles, failed retry after unload, missing exports and unload without an unload callback. It checks forwarded arguments/return values, callback-before-free ordering and retention of the Java module reference. Exit `51` means callback/handle state was not cleared; `52`-`57` identify callback/API-seam assertions; `58` is invalid input; `59`-`76` identify scenario assertions. This probe failed on the pre-cleanup source at `51` and passes after the cleanup; it is not evidence of a regular JVM shutdown crash or production native-attach acceptance.
 
 `NativeGuardOrderProbe.c` adds five fresh-process checks of the real guard with real JVM module enumeration and file handles. A successful control observes actual Java-then-instrumentation loading. A preloaded independent Java copy and `ERROR_NOT_SUPPORTED` on the first/second identity query must each stop before any guard-owned dependency load. A failure after the first Java load must stop before instrumentation loading. Compile-time wrappers count guard-owned `LoadLibraryExW` calls, validate their paths/search flags and delegate permitted loads to Windows; setup loads are separate. Only identity-query failure is injected. These are controlled ordering/error regressions, not a real unsupported-filesystem test.
 

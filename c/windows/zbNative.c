@@ -20,6 +20,12 @@ int  (*pAgent_OnAttach)(void*, char*, void*) = NULL;
 int  (*pAgent_OnLoad)(void*, char*, void*)   = NULL;
 void (*pAgent_OnUnload)(void*)               = NULL;
 
+static void clear_agent_callbacks(void) {
+    pAgent_OnAttach = NULL;
+    pAgent_OnLoad = NULL;
+    pAgent_OnUnload = NULL;
+}
+
 void write_msg(const char* msg) {
     WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), msg, lstrlenA(msg), NULL, NULL);
 }
@@ -32,6 +38,8 @@ void init_instrument_dll() {
     } proc;
     if (hOrig) return; // already loaded
 
+    /* A failed retry must never reuse callbacks from an earlier library load. */
+    clear_agent_callbacks();
     hOrig = load_runtime_instrument();
 
     if (!hOrig) {
@@ -49,9 +57,7 @@ void init_instrument_dll() {
         guard_fail("ZB_GUARD_AGENT_EXPORTS", "Active runtime instrument.dll lacks agent exports.", runtimeInstrumentPath);
         FreeLibrary(hOrig);
         hOrig = NULL;
-        pAgent_OnAttach = NULL;
-        pAgent_OnLoad = NULL;
-        pAgent_OnUnload = NULL;
+        clear_agent_callbacks();
     }
 }
 
@@ -136,6 +142,7 @@ __declspec(dllexport) int Agent_OnAttach(void* jvm, char* args, void* reserved) 
 
 __declspec(dllexport) void Agent_OnUnload(void* jvm) {
     if (hOrig == NULL) {
+        clear_agent_callbacks();
         return;
     }
     if (pAgent_OnUnload) {
@@ -145,4 +152,5 @@ __declspec(dllexport) void Agent_OnUnload(void* jvm) {
     /* Release our instrumentation handle; runtimeJava stays held until process exit. */
     FreeLibrary(hOrig);
     hOrig = NULL;
+    clear_agent_callbacks();
 }
