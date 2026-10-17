@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -134,8 +136,9 @@ class CoopServerJvmArgumentsTest {
         return Files.writeString(tempDir.resolve("Agent with spaces Ä.jar"), "fixture");
     }
 
-    @Test
-    void inheritsOnlySharedSettingsOnEverySupportedPlatform() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"UTF-8", "windows-1252", "MS932"})
+    void inheritsOnlySharedSettingsOnEverySupportedPlatform(String nativeEncoding) throws Exception {
         Path jar = agent().toRealPath();
         Map<String, String> options =
                 Map.of(
@@ -146,7 +149,7 @@ class CoopServerJvmArgumentsTest {
                         "frontend",
                         "console",
                         "config_dir",
-                        tempDir.resolve("Freigaben Ä").toString(),
+                        "./Freigaben",
                         "verbosity",
                         "1",
                         "experimental",
@@ -156,17 +159,23 @@ class CoopServerJvmArgumentsTest {
                         "patches_jar",
                         "client-only.jar");
         List<String> original = command();
-        for (String os : List.of("Windows 11", "Linux", "Mac OS X", "Darwin")) {
-            List<String> inherited = CoopServerJvmArguments.prepare(original, os, jar, options);
-            String prefix = os.startsWith("Windows") ? "-agentlib:zbNative" : "-javaagent:" + jar;
-            assertEquals(
-                    prefix
-                            + "=policy=deny-new,allow_unsigned_mods=false,frontend=console,config_dir="
-                            + options.get("config_dir")
-                            + ",verbosity=1",
-                    inherited.get(1));
-            assertEquals(original, inherited.stream().filter(s -> !s.startsWith(prefix)).toList());
-            assertEquals(8, original.size());
+        String previousEncoding = System.setProperty("native.encoding", nativeEncoding);
+        try {
+            for (String os : List.of("Windows 11", "Linux", "Mac OS X", "Darwin")) {
+                List<String> inherited = CoopServerJvmArguments.prepare(original, os, jar, options);
+                String prefix = os.startsWith("Windows") ? "-agentlib:zbNative" : "-javaagent:" + jar;
+                assertEquals(
+                        prefix
+                                + "=policy=deny-new,allow_unsigned_mods=false,frontend=console,config_dir="
+                                + options.get("config_dir")
+                                + ",verbosity=1",
+                        inherited.get(1));
+                assertEquals(original, inherited.stream().filter(s -> !s.startsWith(prefix)).toList());
+                assertEquals(8, original.size());
+            }
+        } finally {
+            if (previousEncoding == null) System.clearProperty("native.encoding");
+            else System.setProperty("native.encoding", previousEncoding);
         }
     }
 

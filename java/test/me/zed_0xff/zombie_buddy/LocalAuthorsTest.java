@@ -142,6 +142,12 @@ class LocalAuthorsTest {
         check(
                 verify(ID, official(key(second))) instanceof ValidSignature && requests == 1,
                 "Official mismatch permits Steam fallback on cache miss");
+        check(
+                LocalAuthors.displayName(ID, official(key(second))).equals("Official name"),
+                "Official name wins even when the profile supplied the verifying key");
+        check(
+                LocalAuthors.displayName(ID, Map.of()).equals("Original name"),
+                "An author absent from the official list uses the first local name");
         restart();
         LocalAuthors.profileFetcher =
                 id -> {
@@ -242,8 +248,11 @@ class LocalAuthorsTest {
                 verify(ID, Map.of()) instanceof ValidSignature && requests == 1,
                 "Persistent cache across restart works offline");
         check(
-                LocalAuthors.displayName(ID, official(key(first))).equals("Erster Name ä & 中文"),
-                "First name remains display label");
+                LocalAuthors.displayName(ID, official(key(first))).equals("Official name"),
+                "Official name has priority over the retained local name");
+        check(
+                LocalAuthors.displayName(ID, Map.of()).equals("Erster Name ä & 中文"),
+                "First local name remains the fallback display label");
         Method display =
                 Loader.class.getDeclaredMethod("authorDisplayName", SteamID64.class, Map.class);
         display.setAccessible(true);

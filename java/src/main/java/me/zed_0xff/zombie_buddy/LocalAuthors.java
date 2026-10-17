@@ -221,12 +221,12 @@ final class LocalAuthors {
 
     static synchronized String displayName(SteamID64 id, Map<SteamID64, AuthorEntry> official) {
         if (id == null) return "";
+        // Display priority is independent of which key source verified the JAR.
+        AuthorEntry entry = official == null ? null : official.get(id);
+        if (entry != null && entry.name != null && !entry.name.isBlank()) return entry.name;
         Entry cached = store(cachePath()).authors.get(id.toString());
         if (cached != null) return cached.name;
-        AuthorEntry entry = official == null ? null : official.get(id);
-        return entry != null && entry.name != null && !entry.name.isBlank()
-                ? entry.name
-                : id.toString();
+        return id.toString();
     }
 
     private static Profile fetchProfile(SteamID64 id) throws Exception {

@@ -121,7 +121,7 @@ Steam display names are not reliable author identities.
 
 They can change at any time, may contain formatting or confusing impersonation text, and may be unavailable due to privacy settings, network failures, rate limits, or Steam pages returning different content. A live profile name is therefore not a good thing to store as a trust label.
 
-The stable identity is the SteamID64. A previously verified local profile name is retained as its display label; otherwise `authors.json` supplies the curated name. If neither is available, ZombieBuddy shows the raw SteamID64.
+The stable identity is the SteamID64. The curated name from `authors.json` takes display priority, even when a local or Steam-profile key verified the JAR. If the official list has no usable name for that author, the first verified name retained in `authors.local.json` supplies the label. If neither is available, ZombieBuddy shows the raw SteamID64. Refreshing signing keys does not replace the retained local name.
 
 ---
 
