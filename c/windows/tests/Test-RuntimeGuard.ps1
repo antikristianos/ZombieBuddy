@@ -68,6 +68,9 @@ Run (Join-Path $JdkRoot 'bin/javac.exe') @('--release','17','-encoding','UTF-8',
 Run $cl ($flags+@(('/I'+(Join-Path $JdkRoot 'include')),('/I'+(Join-Path $JdkRoot 'include/win32')),('/Fo'+(Join-Path $work 'NativeGuardHost.obj')),(Join-Path $root 'c/windows/tests/NativeGuardHost.c'))) 'compile-host'
 $hostExe=Join-Path $work 'NativeGuardHost.exe'
 Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64','/DYNAMICBASE','/NXCOMPAT',('/OUT:'+$hostExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeGuardHost.obj'),'kernel32.lib','shell32.lib') 'link-host'
+Run $cl ($flags+@('/DZB_TEST_NATIVE_CODEPAGE=932',('/I'+(Join-Path $JdkRoot 'include')),('/I'+(Join-Path $JdkRoot 'include/win32')),('/Fo'+(Join-Path $work 'NativeGuardHost932.obj')),(Join-Path $root 'c/windows/tests/NativeGuardHost.c'))) 'compile-host932'
+$host932=Join-Path $work 'NativeGuardHost932.exe'
+Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64','/DYNAMICBASE','/NXCOMPAT',('/OUT:'+$host932),('/LIBPATH:'+$lib),(Join-Path $work 'NativeGuardHost932.obj'),'kernel32.lib','shell32.lib') 'link-host932'
 if(-not $OriginalDll){$OriginalDll=Join-Path $GameRoot 'zbNative.dll'}; $original=(Resolve-Path -LiteralPath $OriginalDll).Path
 if((Get-FileHash -LiteralPath $original).Hash -ne 'C2AE9335E717EE24B2F4A40D1A3BF77F1519762A72A0459E766A2BBAFC077F6C'){throw 'Expected the known original native baseline'}
 $runtime=Join-Path $GameRoot 'jre64/bin'
@@ -99,7 +102,10 @@ foreach($case in @('original-clean','original-leftovers','guard-clean','guard-le
 
         $caseRuntime=Join-Path $runtimeLink 'bin'
         if($case -match 'Unicode'){$mode='unicode'}
-        $arguments=@($caseRuntime,(Join-Path $stage 'zbNative.dll'),$cp,$mode)
+        # JNI agent options use the Windows code page. Keep the agent path out of
+        # the Unicode stage; the host and all three runtime DLLs still use it.
+        $caseAgent=if($mode -eq 'unicode'){$candidate}else{Join-Path $stage 'zbNative.dll'}
+        $arguments=@($caseRuntime,$caseAgent,$cp,$mode)
         if($case -eq 'guard-preloaded'){$arguments+='preload'}
         if($case -eq 'guard-duplicate-jvm'){$arguments+=@('duplicate-jvm',(Join-Path $stage 'foreign/server/jvm.dll'))}
         if($case -eq 'guard-alias'){$arguments+=@('alias',$runtime)}
@@ -128,6 +134,13 @@ foreach($case in @('original-clean','original-leftovers','guard-clean','guard-le
                 if($text -notmatch '^REPRO original loader: real native encoding failure' -and $text -notmatch '(?m)^REPRO original loader: real native encoding failure'){throw 'Original failure was not reproduced'}
             } elseif($text -notmatch '(?m)^PASS native guard:') {throw 'Native verification marker missing'}
             if($case -eq 'guard-alias' -and $text -notmatch 'PASS alias fixture:'){throw 'Alias reuse fixture was not proved'}
+            if($mode -eq 'unicode') {
+                Copy-Item -LiteralPath $host932 -Destination (Join-Path $stage 'NativeGuardHost932.exe') -Force
+                Run (Join-Path $stage 'NativeGuardHost932.exe') $arguments 'unicode-ms932'
+                $encodedText=[IO.File]::ReadAllText((Join-Path $work 'unicode-ms932.log'))
+                if($encodedText -notmatch 'PASS Unicode runtime paths:' -or $encodedText -notmatch '(?m)^PASS native guard:'){throw 'CP932 option conversion did not retain Unicode runtime coverage'}
+                Write-Output 'PASS CP932 agent option conversion with staged Unicode host/runtime paths'
+            }
         }
     } finally {Pop-Location}
 }

@@ -5,6 +5,11 @@
 #include <tlhelp32.h>
 #include <jni.h>
 
+/* Test-only override exercises JNI option conversion without changing the OS locale. */
+#ifndef ZB_TEST_NATIVE_CODEPAGE
+#define ZB_TEST_NATIVE_CODEPAGE CP_ACP
+#endif
+
 static WCHAR libraryPath[32768];
 static WCHAR loadedJvmPath[32768];
 static char agentOption[65536], classpathOption[65536];
@@ -21,7 +26,7 @@ static int utf8(const WCHAR *source, char *target, int capacity) {
 }
 
 static int native_option(const WCHAR *source, char *target, int capacity) {
-    return WideCharToMultiByte(CP_ACP, 0, source, -1, target, capacity, NULL, NULL);
+    return WideCharToMultiByte(ZB_TEST_NATIVE_CODEPAGE, 0, source, -1, target, capacity, NULL, NULL);
 }
 
 /* Prove fixture preconditions before invoking the guard, without creating a VM. */

@@ -48,6 +48,10 @@ The native option buffer is 4096 bytes including `ZombieBuddy.jar`, the optional
 
 Every ordinary case passes its staged `jre64/bin` junction to the native host. The Unicode/spaces case uses an explicit `unicode` mode: before JVM creation, the host checks the real `jvm.dll` module path with `GetModuleFileNameW`, requires a non-ASCII character and verifies that the requested staged path was retained. After initialization the Java probe checks exactly one JVM, Java and instrumentation module, their file identities and their actual staged Unicode paths. File identity alone is not Unicode-path evidence because the junction and original runtime identify the same files. The separate missing-dependency case retains its deliberately incomplete runtime.
 
+The Unicode case loads the candidate agent DLL from its build path, outside the Unicode stage, because JNI agent options use the Windows code page (for example, Japanese ACP 932 cannot represent `Ä`). Keep the checkout/build and classpath roots representable in that code page. The host executable and staged runtime remain under the Unicode path; all three runtime-module path assertions stay active.
+
+The same case also runs a separately compiled test host with `ZB_TEST_NATIVE_CODEPAGE=932`. This uses the actual Windows conversion API for agent/classpath options while retaining the Unicode host/runtime and the unchanged path assertions. It covers CP932 option transport on the current Windows installation; it does not change the OS locale or claim a full Japanese-Windows test. The override exists only in the test host, not the production DLL.
+
 These results do not establish full game/client/Coop/dedicated acceptance or native-attach behavior on an existing production JVM.
 
 ## Stable guard failure codes
