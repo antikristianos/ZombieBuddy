@@ -10,13 +10,17 @@ Two explicit host regressions exercise the distinction: `guard-duplicate-jvm` pr
 
 `NativeIdentityProbe.c` exercises the real comparator with controlled FileIdInfo responses and real open/closed handles. It checks differences in each of the 16 ID bytes, the upper volume bits, failed first/second queries, failed first/second opens and handle cleanup. These controlled responses test comparison width and failure handling, not actual ReFS behavior.
 
+Identity failures retain the operation/path and original Windows error before cleanup. A physical mismatch remains distinct from an open/query failure; only the confirmed mismatch recommends removal of confirmed leftover copies. All retain the stable `ZB_GUARD_MODULE_IDENTITY` category, with `[operation=...] [win32=...]` added for API failures. Other failed Windows operations also include their captured error code.
+
+`NativeDiagnosticsProbe.c` exercises actual guard formatting/writing with controlled stderr handles/writes and debug receivers. It covers normal/partial writes, missing/invalid handles, failed/zero-byte writes, Unicode debug fallback, preservation of the caller's last error and distinct mismatch/open/query advice. The identity probe deliberately changes the thread error during handle cleanup to prove the original failure survives. These capture seams are test-only and do not establish actual GUI/service log collection.
+
 ## Running the tests
 
 The player-facing [Windows loader requirement](../../../doc/Installation.md#windows-native-loader-requirement) explains the mandatory FileIdInfo support and startup/attach refusal when identity queries fail. The tests simulate this failure; they do not establish compatibility with a particular unsupported filesystem.
 
 ### Test build mechanics
 
-`NativeOptionsProbe.c`, `NativeIdentityProbe.c`, `NativeGuardOrderProbe.c` and `NativeCallbacksProbe.c` each build a separate executable from one translation unit that directly includes `zbNative.c`. Do not also link the production `zbNative.obj` into these executables or compile the static guard header as another translation unit. Their compile-time API wrappers apply only to the individual test executable and are absent from the production DLL.
+`NativeOptionsProbe.c`, `NativeIdentityProbe.c`, `NativeDiagnosticsProbe.c`, `NativeGuardOrderProbe.c` and `NativeCallbacksProbe.c` each build a separate executable from one translation unit that directly includes `zbNative.c`. Do not also link the production `zbNative.obj` into these executables or compile the static guard header as another translation unit. Their compile-time API wrappers apply only to the individual test executable and are absent from the production DLL.
 
 `NativeGuardHost.c` is a separate host executable that loads the actual candidate DLL and starts the bundled JVM for `NativeGuardProbe.java`; those real-host cases do not use the C probe wrappers.
 
@@ -40,7 +44,18 @@ Requirements: Windows x64, MSVC x64 tools and Windows SDK, JDK 25, the installed
 ./c/windows/tests/Test-RuntimeGuard.ps1 -GameRoot 'E:\Steam\steamapps\common\ProjectZomboid' -AgentJar '<official ZombieBuddy.jar>' -OriginalDll '<original zbNative.dll>'
 ```
 
-The test compiles the native candidate with MSVC (without adding a CRT dependency); the ordinary MinGW Makefile remains supported but was not exercised here. Outputs are under ignored `build/native-runtime-guard/`. Initial staging creation is safe only for a new/generated directory; unknown existing staging is rejected. Runtime directory junctions are read-only. Do not recursively traverse those junctions during cleanup; remove the junction entries themselves.
+The test compiles the native candidate with MSVC (without adding a CRT dependency), or accepts `-CandidateDll` to run the real-host cases against an explicitly built DLL such as the MinGW output. The standalone C probes still compile with MSVC. Outputs are under ignored `build/native-runtime-guard/`. Initial staging creation is safe only for a new/generated directory; unknown existing staging is rejected. Runtime directory junctions are read-only. Do not recursively traverse those junctions during cleanup; remove the junction entries themselves.
+
+### MinGW Makefile check
+
+`Test-MinGWBuild.ps1` copies the production Makefile/source/header/DEF byte-for-byte into marked ignored `build/native-mingw-guard/` staging. It uses the Makefile's normal flags, verifies that the header triggers recompilation, and checks x64 PE format, KERNEL32/USER32-only imports and exactly the three original agent exports. It requires MinGW-w64 GCC, GNU Make and GNU Objdump; no system installation or automatic toolchain download is performed by the script. Supply paths explicitly for a portable toolchain:
+
+```powershell
+./c/windows/tests/Test-MinGWBuild.ps1 -Compiler '<toolchain>/bin/x86_64-w64-mingw32-gcc.exe' -Make '<toolchain>/bin/mingw32-make.exe' -Objdump '<toolchain>/bin/objdump.exe'
+./c/windows/tests/Test-RuntimeGuard.ps1 -AgentJar '<official ZombieBuddy.jar>' -OriginalDll '<original zbNative.dll>' -CandidateDll './build/native-mingw-guard/zbNative.dll'
+```
+
+The production Makefile and real-host suite were exercised with MinGW-Builds GCC 16.2.0 / mingw-w64 v14 (x64 POSIX/SEH/UCRT) in addition to MSVC. This is a local compiler/runtime check, not a CI matrix or actual ReFS/game/native-attach acceptance. Compiler/header requirements and the distinction between the native API floor and supported current game OS are documented in the installation guide.
 
 The guarded process must load exactly one `java.dll` and one `instrument.dll` from its active runtime. Localhost resolution, socket/HTTP-client creation and native agent option forwarding must succeed. Already loaded conflicting JVM modules cause an explicit guard message and startup refusal; they are never forcibly unloaded. No file is removed from or installed in the game directory.
 

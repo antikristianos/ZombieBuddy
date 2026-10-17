@@ -3,7 +3,8 @@ param(
     [string]$GameRoot='E:\Steam\steamapps\common\ProjectZomboid',
     [string]$JdkRoot='C:\Program Files\Java\jdk-25',
     [string]$AgentJar,
-    [string]$OriginalDll
+    [string]$OriginalDll,
+    [string]$CandidateDll
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -34,9 +35,13 @@ function Run([string]$exe,[string[]]$arguments,[string]$label) {
     $lines|Where-Object {$_ -match '^(PASS|REPRO|MODULE=)'}|Write-Output
 }
 $flags=@('/nologo','/c','/O1','/GS-','/Zl','/W4','/WX',('/I'+(Join-Path $msvc.FullName 'include')),('/I'+(Join-Path $include 'um')),('/I'+(Join-Path $include 'shared')),('/I'+(Join-Path $include 'ucrt')))
-Run $cl ($flags+@(('/Fo'+(Join-Path $work 'zbNative.obj')),(Join-Path $source 'zbNative.c'))) 'compile-native'
-$candidate=Join-Path $work 'zbNative.dll'
-Run $link @('/nologo','/DLL','/NODEFAULTLIB','/ENTRY:DllMain','/MACHINE:X64','/DYNAMICBASE','/NXCOMPAT','/Brepro',('/DEF:'+(Join-Path $source 'zbNative.def')),('/OUT:'+$candidate),('/LIBPATH:'+$lib),(Join-Path $work 'zbNative.obj'),'kernel32.lib','user32.lib') 'link-native'
+if($CandidateDll) {
+    $candidate=(Resolve-Path -LiteralPath $CandidateDll).Path
+} else {
+    Run $cl ($flags+@(('/Fo'+(Join-Path $work 'zbNative.obj')),(Join-Path $source 'zbNative.c'))) 'compile-native'
+    $candidate=Join-Path $work 'zbNative.dll'
+    Run $link @('/nologo','/DLL','/NODEFAULTLIB','/ENTRY:DllMain','/MACHINE:X64','/DYNAMICBASE','/NXCOMPAT','/Brepro',('/DEF:'+(Join-Path $source 'zbNative.def')),('/OUT:'+$candidate),('/LIBPATH:'+$lib),(Join-Path $work 'zbNative.obj'),'kernel32.lib','user32.lib') 'link-native'
+}
 Run (Join-Path $msvc.FullName 'bin/Hostx64/x64/dumpbin.exe') @('/headers','/imports','/exports',$candidate) 'inspect-native'
 $pe=[IO.File]::ReadAllText((Join-Path $work 'inspect-native.log'))
 if($pe -notmatch '8664 machine \(x64\)'){throw 'Native candidate must be Windows x64'}
@@ -54,6 +59,10 @@ Run $cl ($flags+@(('/Fo'+(Join-Path $work 'NativeIdentityProbe.obj')),(Join-Path
 $identityExe=Join-Path $work 'NativeIdentityProbe.exe'
 Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64',('/OUT:'+$identityExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeIdentityProbe.obj'),'kernel32.lib','user32.lib') 'link-native-identity'
 Run $identityExe @() 'native-identity'
+Run $cl ($flags+@(('/Fo'+(Join-Path $work 'NativeDiagnosticsProbe.obj')),(Join-Path $source 'tests/NativeDiagnosticsProbe.c'))) 'compile-native-diagnostics'
+$diagnosticsExe=Join-Path $work 'NativeDiagnosticsProbe.exe'
+Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64',('/OUT:'+$diagnosticsExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeDiagnosticsProbe.obj'),'kernel32.lib','user32.lib') 'link-native-diagnostics'
+Run $diagnosticsExe @() 'native-diagnostics'
 Run $cl ($flags+@(('/Fo'+(Join-Path $work 'NativeGuardOrderProbe.obj')),(Join-Path $source 'tests/NativeGuardOrderProbe.c'))) 'compile-native-order'
 $orderExe=Join-Path $work 'NativeGuardOrderProbe.exe'
 Run $link @('/nologo','/NODEFAULTLIB','/ENTRY:mainCRTStartup','/SUBSYSTEM:CONSOLE','/MACHINE:X64',('/OUT:'+$orderExe),('/LIBPATH:'+$lib),(Join-Path $work 'NativeGuardOrderProbe.obj'),'kernel32.lib','user32.lib','shell32.lib') 'link-native-order'
