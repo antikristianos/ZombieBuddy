@@ -328,6 +328,7 @@ public class Loader {
     }
 
     static void applyBatchApprovalLines(List<JarBatchApprovalProtocol.Entry> entries, JarDecisionTable disk) {
+        // Consume trust-only revocations without changing the hash store, and explicit resets:
         // null + MF_PERSIST requests an explicit reset, not a permanent denial.
         // Consume it before normal processing: remove the stored hash/author trust,
         // then convert it to a nonpersistent denial for this launch. Never store the marker.

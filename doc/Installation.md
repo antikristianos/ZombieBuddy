@@ -38,6 +38,13 @@ Click a selected Allow or Deny option again to reset it to undecided; click the 
 Saving an explicit reset also removes that mod hash's previous saved decision. Without Save, or on Cancel, stored decisions remain unchanged.
 Signature failures and Steam bans keep their enforced refusals; author trust still applies only to eligible signed mods.
 
+Removing existing author trust without selecting Allow, Deny or reset saves only
+that author revocation. It does not add, replace or clear the row's hash decision;
+a previously unseen hash is asked again on the next launch. Save off and Cancel
+preserve author trust and preload configuration. Preload changes in an approval
+response require a saved explicit choice; saved Deny/reset still remove the
+corresponding preload entry.
+
 The Console, Swing and Tinyfd frontends retain their existing interaction behavior.
 
 ### Where decisions are stored

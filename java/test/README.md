@@ -28,3 +28,13 @@ denial being written back. HTTP is replaced with local fixtures; no game/server 
 Run it explicitly with the same classpath and disposable output argument, using `-Xverify:all`;
 native-access/library-path options are not needed. The focused JUnit tests separately check
 change reporting and the loader's dirty flag, including preserving an already dirty state.
+
+`AuthorUntrustProbe.main` checks the separate author-untrust-only response through
+the real dialog, JSON readers, loader and config/hash-store save gates. It covers
+initial undecided/Allow/Deny rows, Save off, Cancel, explicit Deny/reset, preload
+preservation and marker eligibility. Fresh JVMs verify that untrust survives while
+a new hash is prompted again and approval bytes are unchanged. Signature metadata
+in this UI fixture is synthetic; this is not a cryptographic-verification test.
+All network responses are fixtures; no game or UI window starts. Use the same
+disposable-output/classpath pattern with `-Xverify:all`. `AuthorUntrustTest` runs
+only the state matrix as an ordinary unit test.

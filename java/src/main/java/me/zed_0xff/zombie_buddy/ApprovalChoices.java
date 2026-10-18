@@ -6,6 +6,8 @@ import static me.zed_0xff.zombie_buddy.ModFlags.*;
 
 /** Per-dialog user intent, separate from the fail-closed decision for this launch. */
 public final class ApprovalChoices {
+    // IPC-only bit above the existing ModFlags range. Never sticky or stored as a hash decision.
+    private static final int UNTRUST_ONLY = 1 << 7;
     private final boolean[] selected;
     private final boolean[] value;
     private final Boolean[] choice;
@@ -56,7 +58,7 @@ public final class ApprovalChoices {
     }
 
     public boolean shouldPersist(int index, boolean save) {
-        return save && !blocked[index] && (selected[index] || trust[index] != initialTrust[index]);
+        return save && !blocked[index] && (selected[index] || (trust[index] && !initialTrust[index]));
     }
 
     public int denyColor(int index, boolean forced, int red) {
@@ -72,10 +74,14 @@ public final class ApprovalChoices {
     /** Null + persist is a transient explicit reset; ordinary undecided rows still return false. */
     public List<JarBatchApprovalProtocol.Entry> finish(List<JarBatchApprovalProtocol.Entry> entries, boolean save) {
         for (int i = 0; i < entries.size(); i++) {
+            var entry = entries.get(i);
+            entry.flags = entry.flags.without(UNTRUST_ONLY);
             if (save && cleared[i] && !blocked[i] && !trust[i]) {
-                var entry = entries.get(i);
                 entry.decision = null;
                 entry.flags = entry.flags.with(MF_PERSIST).without(MF_TRUST_AUTHOR);
+            } else if (save && initialTrust[i] && !trust[i] && !blocked[i] && !selected[i]) {
+                // Revoking trust is not an Allow/Deny click or a reset of an untouched hash.
+                entry.flags = entry.flags.with(MF_PERSIST | UNTRUST_ONLY).without(MF_TRUST_AUTHOR | MF_PRELOAD);
             }
         }
         return entries;
@@ -86,6 +92,9 @@ public final class ApprovalChoices {
      * Consume this transient marker before ordinary launch processing; it must never reach the store.
      * Missing/invalid signature metadata cannot clear approvals or author trust. The marker still
      * becomes a nonpersistent denial for this launch, with existing stored decisions preserved.
+     * UNTRUST_ONLY + MF_PERSIST revokes only author trust, leaving the hash list/dirty flag intact.
+     * Cancel strips MF_PERSIST, so even a previously built untrust marker cannot revoke trust.
+     * Nonpersistent rows must not reach the original loader's persistent preload add/remove path.
      * @return true only when a stored hash record was removed; the loader must mark approvals dirty.
      */
     public static boolean applyClears(List<JarBatchApprovalProtocol.Entry> entries, List<ModApprovalsStore.ModEntry> stored,
@@ -93,6 +102,19 @@ public final class ApprovalChoices {
         if (entries == null) return false;
         boolean changed = false;
         for (var entry : entries) {
+            if (entry != null && entry.flags != null && !entry.flags.has(MF_PERSIST)) {
+                entry.flags = entry.flags.without(MF_PRELOAD);
+            }
+            if (entry != null && entry.flags != null && entry.flags.has(UNTRUST_ONLY)) {
+                if (entry.flags.has(MF_PERSIST) && entry.zbs != null && entry.zbs.valid()
+                        && entry.zbs.authorSteamId() != null && entry.steamBan == null && !Utils.isBlank(entry.sha256)) {
+                    removeTrustedAuthor.accept(entry.zbs.authorSteamId());
+                }
+                // Consume separately from explicit hash resets and ordinary saved Allow/Deny.
+                if (entry.decision == null) entry.decision = false;
+                entry.flags = entry.flags.without(UNTRUST_ONLY | MF_PERSIST | MF_TRUST_AUTHOR | MF_PRELOAD);
+                continue;
+            }
             if (entry == null || entry.decision != null || entry.flags == null || !entry.flags.has(MF_PERSIST)) continue;
             if (entry.zbs != null && !entry.zbs.invalid() && entry.steamBan == null && !Utils.isBlank(entry.sha256)) {
                 changed |= stored.removeIf(old -> old != null && entry.sha256.equals(old.jarHash));
