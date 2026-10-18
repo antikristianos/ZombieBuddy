@@ -83,7 +83,7 @@ class CoopServerJvmArgumentsTest {
                 () -> CoopServerJvmArguments.prepare(command(), "Windows 11", jar, options));
         for (String platform : List.of("Linux", "Mac OS X")) {
             assertEquals(
-                    command().size() + 1,
+                    command().size() + 2,
                     CoopServerJvmArguments.prepare(command(), platform, jar, options).size());
         }
     }
@@ -170,7 +170,7 @@ class CoopServerJvmArgumentsTest {
                                 + options.get("config_dir")
                                 + ",verbosity=1",
                         inherited.get(1));
-                assertEquals(original, inherited.stream().filter(s -> !s.startsWith(prefix)).toList());
+                assertEquals(original, inherited.stream().filter(s -> !s.startsWith(prefix) && !s.equals(CoopServerJvmArguments.COOP_CHILD_PROPERTY)).toList());
                 assertEquals(8, original.size());
             }
         } finally {
@@ -180,12 +180,22 @@ class CoopServerJvmArgumentsTest {
     }
 
     @Test
+    void childRoleMarkerOverridesEarlierJvmPropertyWithoutChangingAgentPayload() throws Exception {
+        List<String> original = command();
+        original.add(1, "-Dzb.coop.child=false");
+        List<String> inherited = CoopServerJvmArguments.prepare(original, "Linux", agent(), Map.of());
+        int main = inherited.indexOf("zombie.network.GameServer");
+        assertEquals(CoopServerJvmArguments.COOP_CHILD_PROPERTY, inherited.get(main - 1));
+        assertTrue(inherited.indexOf("-Dzb.coop.child=false") < main - 1);
+    }
+
+    @Test
     void retainsGcChoiceAndWorksWithNoGcOrExplicitOptions() throws Exception {
         List<String> original = command();
         original.remove("-XX:+UseG1GC");
         List<String> inherited =
                 CoopServerJvmArguments.prepare(original, "Linux", agent(), Map.of());
-        assertEquals(original.size() + 1, inherited.size());
+        assertEquals(original.size() + 2, inherited.size());
         assertEquals("-javaagent:" + agent().toRealPath(), inherited.get(1));
         original.add(1, "-XX:+UseZGC");
         assertTrue(
@@ -200,7 +210,7 @@ class CoopServerJvmArgumentsTest {
         original.add(1, "-javaagent:another-agent.jar");
         original.add(1, "@unrelated.args");
         List<String> inherited = CoopServerJvmArguments.prepare(original, "Linux", jar, Map.of());
-        assertEquals(original.size() + 1, inherited.size());
+        assertEquals(original.size() + 2, inherited.size());
         assertTrue(inherited.contains("-javaagent:another-agent.jar"));
         assertTrue(inherited.contains("@unrelated.args"));
     }
@@ -210,7 +220,7 @@ class CoopServerJvmArgumentsTest {
         List<String> original = command();
         original.add("-javaagent:ZombieBuddy.jar");
         assertEquals(
-                original.size() + 1,
+                original.size() + 2,
                 CoopServerJvmArguments.prepare(original, "Linux", agent(), Map.of()).size());
         original.remove("-coop");
         assertSame(original, CoopServerJvmArguments.prepare(original, "Linux", agent(), Map.of()));

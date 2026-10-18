@@ -16,6 +16,7 @@ import java.util.Map;
 public final class CoopServerJvmArguments {
     // Conservative limit supported by existing loaders; newer native buffers may be larger.
     static final int WINDOWS_AGENT_OPTIONS_MAX = 2048;
+    static final String COOP_CHILD_PROPERTY = "-Dzb.coop.child=true";
     private static final List<String> SHARED_OPTIONS =
             List.of("policy", "allow_unsigned_mods", "frontend", "config_dir", "verbosity");
 
@@ -94,6 +95,8 @@ public final class CoopServerJvmArguments {
         }
         if (!tail.isEmpty()) agent += "=" + tail;
         List<String> inherited = new ArrayList<>(command);
+        // Last JVM property wins over any earlier value; keep it out of the native option buffer.
+        inherited.add(main, COOP_CHILD_PROPERTY);
         // Run ZombieBuddy's premain before other Java agents can load game classes.
         inherited.add(1, agent);
         return inherited;

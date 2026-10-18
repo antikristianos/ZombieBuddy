@@ -206,6 +206,24 @@ child JVM and forwards the explicitly configured `policy`, `allow_unsigned_mods`
 `frontend`, `config_dir`, and `verbosity` options. The client and server therefore
 use the same approval policy and, when `config_dir` is set, the same configuration
 directory. Defaults still apply to options that were not configured.
+The Coop child is read-only for client-owned decisions and settings. It never
+opens an approval dialog, changes author trust/preload entries, creates or
+replaces `config.json`/`mod_approvals.json`, or removes legacy approval files.
+Each mod-loading pass reads the client's current saved configuration and
+approvals. Under `policy=prompt`, missing approvals are denied without prompting;
+existing author trust and allow/deny entries keep their normal meaning. Explicit
+`policy=allow-all` permits loading for that child session without saving new
+decisions. Unsaved client-only dialog choices are not transferred by this path.
+Client and separately launched dedicated agents retain their existing write/UI
+behavior. The verified `authors.local.json` identity cache remains independent
+of approval/trust decisions and retains its existing lock/merge protocol.
+
+The launch helper adds `-Dzb.coop.child=true` as the final JVM property before the
+server main class, separately from native agent options. Premain captures the
+role before mods load; changing mutable agent options/properties later cannot
+disable the guards. Normal Java `GameServer -coop` commands are also recognized
+when an agent was injected manually. This is an ownership rule for supported
+loader/store APIs, not a sandbox against arbitrary code in already allowed mods.
 
 Windows uses `-agentlib:zbNative`; Linux and macOS use `-javaagent:` with the actual
 loaded ZombieBuddy JAR. Existing JVM options and the game's garbage-collector

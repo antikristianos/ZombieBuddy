@@ -47,7 +47,7 @@ public final class CoopNativeOverflowProbe {
             System.setOut(sink); System.setErr(sink); Logger.setLevel(Logger.INFO);
             Agent.arguments.clear(); Agent.arguments.put("config_dir", exact);
             List<String> accepted = CoopServerJvmArguments.inherit(original);
-            check(accepted != original && accepted.size() == original.size() + 1,
+            check(accepted != original && accepted.size() == original.size() + 2,
                     "Exact-capacity options must pass the real inherit path");
             check(accepted.get(1).equals("-agentlib:zbNative=config_dir=" + exact), "Exact value must be forwarded intact");
             check(snapshot.equals(original), "Successful forwarding must not mutate the original command");
