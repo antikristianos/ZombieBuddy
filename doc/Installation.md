@@ -38,6 +38,15 @@ Click a selected Allow or Deny option again to reset it to undecided; click the 
 Saving an explicit reset also removes that mod hash's previous saved decision. Without Save, or on Cancel, stored decisions remain unchanged.
 Signature failures and Steam bans keep their enforced refusals; author trust still applies only to eligible signed mods.
 
+Cancel discards all pending window changes, regardless of the Save checkbox. The loading process
+rereads saved hash decisions and author trust after receiving the cancelled response: saved Allow
+remains allowed, saved Deny remains denied unless a verified trusted author allows it, matching
+ordinary prompt handling. Only unresolved hashes are denied for this launch and asked again next
+launch. Unsaved selections, resets, author-trust edits and earlier session-only choices are not
+retained. Cancel writes neither approval nor trust/preload configuration. Code already executed
+as a preload stays loaded. This also covers existing frontend fallbacks through the same
+`denyAll` entry; standalone OS-window lifecycle and other frontend interactions are unchanged.
+
 Removing existing author trust without selecting Allow, Deny or reset saves only
 that author revocation. It does not add, replace or clear the row's hash decision;
 a previously unseen hash is asked again on the next launch. Save off and Cancel

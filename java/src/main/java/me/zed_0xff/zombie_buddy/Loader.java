@@ -328,6 +328,8 @@ public class Loader {
     }
 
     static void applyBatchApprovalLines(List<JarBatchApprovalProtocol.Entry> entries, JarDecisionTable disk) {
+        // Cancel discards UI edits and restores saved decisions/trust after frontend IPC.
+        ApprovalChoices.applyCancelled(entries);
         // Consume trust-only revocations without changing the hash store, and explicit resets:
         // null + MF_PERSIST requests an explicit reset, not a permanent denial.
         // Consume it before normal processing: remove the stored hash/author trust,

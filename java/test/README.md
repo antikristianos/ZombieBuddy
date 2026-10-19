@@ -38,3 +38,17 @@ in this UI fixture is synthetic; this is not a cryptographic-verification test.
 All network responses are fixtures; no game or UI window starts. Use the same
 disposable-output/classpath pattern with `-Xverify:all`. `AuthorUntrustTest` runs
 only the state matrix as an ordinary unit test.
+
+`ApprovalCancelTest` runs the non-graphics Cancel state matrix with normal JUnit. It checks saved
+Allow/Deny, current verified-author trust, discarded window edits, fresh saved state after dialog
+creation, session-only choices, signature/ban limits and unchanged preload/configuration. Shared
+loader/config state is restored afterward. Additional tests pin the private nonsticky IPC marker,
+its real JSON round trip, no decision-file creation, and unchanged ordinary confirmation/reset.
+
+`ApprovalCancelProbe.main` is the explicit packaged integration entry. It adds the actual
+`Loader.loadMods()` save gates and six fresh JVM restarts to that state matrix (160 assertions),
+covering Save on/off for saved Allow, saved Deny and unresolved hashes. Run against the shaded
+agent first, followed by compiled test classes and game JAR, using `-Xverify:all` and a disposable
+output directory. No ImGui native graphics context or game/server starts. Author/signature
+metadata in the state matrix is synthetic; the unsigned actual-loader fixtures do not claim new
+cryptographic validation. Cancel resolution runs in the loading process after JSON IPC.

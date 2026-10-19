@@ -221,7 +221,7 @@ final class ImguiApprovalDialog {
         ImGui.setCursorPosY(buttonY);
         ImGui.setCursorPosX(Math.max(ImGui.getCursorPosX(), ImGui.getWindowWidth() - rightPad - buttonRowW));
         boolean cancelClicked = clickableButton(cancelLabel, cancelW, buttonH);
-        showTooltipIfHovered("deny all pending Java mods");
+        showTooltipIfHovered("Discard changes. Use saved approvals and trusted authors; deny only mods still awaiting approval for this launch.");
 
         if (cancelClicked) {
             result.compareAndSet(null, denyAll(entries));
@@ -411,13 +411,8 @@ final class ImguiApprovalDialog {
     }
 
     static List<JarBatchApprovalProtocol.Entry> denyAll(List<JarBatchApprovalProtocol.Entry> pending) {
-        ArrayList<JarBatchApprovalProtocol.Entry> out = new ArrayList<>(pending.size());
-        for (JarBatchApprovalProtocol.Entry e : pending) {
-            e.decision = false;
-            e.flags = e.flags.without(MF_PERSIST | MF_TRUST_AUTHOR);
-            out.add(e);
-        }
-        return out;
+        // The frontend can run in another process; resolve current saved state in the loader.
+        return ApprovalChoices.cancel(pending);
     }
 
     private void drawRow(int index, JarBatchApprovalProtocol.Entry e) {

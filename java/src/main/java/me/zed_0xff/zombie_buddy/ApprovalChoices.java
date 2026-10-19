@@ -8,6 +8,7 @@ import static me.zed_0xff.zombie_buddy.ModFlags.*;
 public final class ApprovalChoices {
     // IPC-only bit above the existing ModFlags range. Never sticky or stored as a hash decision.
     private static final int UNTRUST_ONLY = 1 << 7;
+    private static final int CANCEL_PENDING = 1 << 8;
     private final boolean[] selected;
     private final boolean[] value;
     private final Boolean[] choice;
@@ -85,6 +86,35 @@ public final class ApprovalChoices {
             }
         }
         return entries;
+    }
+
+    /** Cancel carries no UI choices; the loading process resolves saved state after IPC. */
+    public static List<JarBatchApprovalProtocol.Entry> cancel(List<JarBatchApprovalProtocol.Entry> entries) {
+        for (var entry : entries) {
+            entry.decision = false;
+            entry.flags = entry.flags.without(MF_PERSIST | MF_TRUST_AUTHOR | MF_PRELOAD | UNTRUST_ONLY)
+                    .with(CANCEL_PENDING);
+        }
+        return entries;
+    }
+
+    /** Restore disk approvals/trust, ignoring unsaved UI and earlier session choices. Never writes. */
+    public static void applyCancelled(List<JarBatchApprovalProtocol.Entry> entries) {
+        if (entries == null || entries.stream().noneMatch(e -> e != null && e.flags != null && e.flags.has(CANCEL_PENDING))) return;
+        var approvals = new JarDecisionTable();
+        for (var stored : ModApprovalsStore.load().mods) {
+            approvals.put(stored.jarHash, stored.decision);
+        }
+        var config = Config.load();
+        for (var entry : entries) {
+            if (entry == null || entry.flags == null || !entry.flags.has(CANCEL_PENDING)) continue;
+            boolean eligible = entry.zbs != null && !entry.zbs.invalid() && entry.steamBan == null
+                    && !entry.flags.has(MF_BANNED) && !Utils.isBlank(entry.sha256);
+            // Match normal prompt handling: verified author trust precedes the stored hash decision.
+            boolean trusted = eligible && entry.zbs.valid() && config.trustsAuthor(entry.zbs.authorSteamId());
+            entry.decision = eligible && (trusted || Boolean.TRUE.equals(approvals.get(entry.sha256)));
+            entry.flags = entry.flags.without(CANCEL_PENDING | UNTRUST_ONLY | MF_PERSIST | MF_TRUST_AUTHOR | MF_PRELOAD);
+        }
     }
 
     /**
