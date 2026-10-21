@@ -47,6 +47,12 @@ retained. Cancel writes neither approval nor trust/preload configuration. Code a
 as a preload stays loaded. This also covers existing frontend fallbacks through the same
 `denyAll` entry; standalone OS-window lifecycle and other frontend interactions are unchanged.
 
+Automatic author-trust revocations caused by a Workshop ban are saved before the approval
+frontend opens, independently of Save or Cancel. Cancel cannot restore that revoked trust
+from a stale configuration file or use it to override a saved Deny. An explicit saved hash
+Allow for another eligible mod and unrelated trusted authors retain their normal behavior.
+The loader keeps its original final save gate for retries if the early write fails.
+
 Removing existing author trust without selecting Allow, Deny or reset saves only
 that author revocation. It does not add, replace or clear the row's hash decision;
 a previously unseen hash is asked again on the next launch. Save off and Cancel

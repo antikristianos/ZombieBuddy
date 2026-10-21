@@ -33,6 +33,7 @@ public final class ApprovalCancelProbe {
         return JarBatchApprovalProtocol.readResponse(response);
     }
     static void matrix(Path root, boolean save) throws Exception {
+        ApprovalChoices.beginLoad(); // Direct response-path matrix, outside loadMods.
         Files.createDirectories(root);
         Agent.arguments.put("config_dir", root.toString());
         var signed = new JarBatchApprovalProtocol.Entry.ZBSignature(true, AUTHOR, "controlled verified UI fixture");
@@ -92,7 +93,11 @@ public final class ApprovalCancelProbe {
         check(config.equals(field("g_config").get(null)), "Pending dialog trust/preload edits discarded");
     }
     /** Unit-test entry: no graphics context; restore all shared loader/config state afterward. */
+    @SuppressWarnings("unchecked")
     static void stateTests(Path root) throws Exception {
+        Field revokedField = ApprovalChoices.class.getDeclaredField("banRevokedAuthors"); revokedField.setAccessible(true);
+        var revoked = (Set<SteamWorkshop.SteamID64>)revokedField.get(null);
+        var previousRevocations = new HashSet<>(revoked);
         String previousDir = Agent.arguments.get("config_dir");
         Map<String, Object> previous = new LinkedHashMap<>();
         for (String name : List.of("g_storedEntries", "g_modApprovalsDirty", "g_config", "g_configDirty"))
@@ -104,6 +109,7 @@ public final class ApprovalCancelProbe {
             matrix(root.resolve("save-on"), true);
             matrix(root.resolve("save-off"), false);
         } finally {
+            revoked.clear(); revoked.addAll(previousRevocations);
             for (var state : previous.entrySet()) field(state.getKey()).set(null, state.getValue());
             session.hashes().clear(); previousSession.forEach(session::put);
             if (previousDir == null) Agent.arguments.remove("config_dir");
@@ -139,11 +145,77 @@ public final class ApprovalCancelProbe {
         check(Arrays.equals(configBefore, Files.readAllBytes(Agent.configDir().resolve("config.json"))), "Actual loader save gate preserves config bytes");
         check(!(boolean)field("g_modApprovalsDirty").get(null) && !(boolean)field("g_configDirty").get(null), "No actual-loader persistence after Cancel");
         if (!restart) {
-            int exit = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java.exe").toString(),
+            String executable = System.getProperty("os.name", "").startsWith("Windows") ? "java.exe" : "java";
+            int exit = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", executable).toString(),
                     "-Xverify:all", "-cp", System.getProperty("java.class.path"), ApprovalCancelProbe.class.getName(),
                     root.toString(), "restart", String.valueOf(saved)).inheritIO().start().waitFor();
             check(exit == 0, "Fresh JVM retains decisions and asks again only for unresolved hashes");
         }
+    }
+    private static void bannedAuthor(Path root, Boolean saved, boolean save, boolean staleDisk) throws Exception {
+        String hash = (String)persistence("makeFixture", new Class<?>[]{Path.class}, root);
+        persistence("configure", new Class<?>[]{Path.class, boolean.class}, root, true);
+        installBannedFixture(root);
+        var other = new SteamWorkshop.SteamID64(76561198000000011L);
+        Config.save(new Config().withTrustedAuthor(AUTHOR).withTrustedAuthor(other));
+        Loader.initConfig();
+        var seed = new ModApprovalsStore.FileData();
+        if (saved != null) seed.mods.add(new ModApprovalsStore.ModEntry("ApprovalResetFixture", null, hash, saved, "before", AUTHOR));
+        ModApprovalsStore.save(seed);
+        int[] calls = {0};
+        field("g_approvalFrontend").set(null, (ModApprovalFrontend)pending -> {
+            calls[0]++;
+            try {
+                check(!((Config)field("g_config").get(null)).trustsAuthor(AUTHOR), "Actual ban handler revokes live trust");
+                check(!Config.load().trustsAuthor(AUTHOR), "Ban revocation is saved before frontend opens");
+                if (staleDisk) Config.save(new Config().withTrustedAuthor(AUTHOR).withTrustedAuthor(other));
+                var signed = new JarBatchApprovalProtocol.Entry.ZBSignature(true, AUTHOR, "controlled signed fixture");
+                var e = pending.stream().filter(row -> row.modId.equals("ApprovalResetFixture")).findFirst().orElseThrow();
+                var sibling = new JarBatchApprovalProtocol.Entry(e.modId, e.workshopItemId, e.jarAbsolutePath,
+                        e.infAbsolutePath, e.sha256, e.date, saved, e.flags, e.modDisplayName, signed, null);
+                var rows = List.of(ApprovalDialogProbe.entry("banned", false, MF_BANNED, signed,
+                                new JarBatchApprovalProtocol.Entry.SteamBan("controlled ban")),
+                        sibling, ApprovalDialogProbe.entry("other-trusted", null, MF_TRUST_AUTHOR,
+                                new JarBatchApprovalProtocol.Entry.ZBSignature(true, other, "other"), null),
+                        ApprovalDialogProbe.entry("revoked-saved-allow", true, MF_PERSIST, signed, null));
+                var data = ModApprovalsStore.load();
+                data.mods.add(new ModApprovalsStore.ModEntry("revoked-saved-allow", null,
+                        rows.get(3).sha256, true, "before", AUTHOR));
+                ModApprovalsStore.save(data); // Fixture seed only, before Cancel processing.
+                return cancel(ApprovalDialogProbe.dialog(rows), save, root.resolve("response.json"));
+            } catch (Exception ex) { throw new AssertionError(ex); }
+        });
+        Loader.loadMods(new ArrayList<>(List.of("ApprovalResetFixture", "BannedFixture")));
+        var session = (JarDecisionTable)field("g_sessionJarDecisions").get(null);
+        check(calls[0] == 1, "Actual loader processes ban/Cancel response");
+        check(Boolean.FALSE.equals(session.get(hash)), "Cancel cannot restore banned uploader trust for eligible sibling or override saved Deny");
+        check(Boolean.TRUE.equals(session.get("other-trusted-hash")), "Unrelated saved author trust still applies");
+        check(Boolean.TRUE.equals(session.get("revoked-saved-allow-hash")), "Revocation does not erase explicit saved Allow");
+        check(!Config.load().trustsAuthor(AUTHOR) && Config.load().trustsAuthor(other), "Actual save gate persists automatic revocation only");
+        check(!(boolean)field("g_modApprovalsDirty").get(null), "Cancel never dirties hash approvals");
+        // Compare the sibling record itself; the unrelated saved-Allow row was seeded in the frontend.
+        var siblingRecords = ModApprovalsStore.load().mods.stream().filter(e -> hash.equals(e.jarHash)).toList();
+        check(saved == null ? siblingRecords.isEmpty() : siblingRecords.size() == 1 && saved.equals(siblingRecords.get(0).decision),
+                "No implicit hash approval/refusal is saved after ban/Cancel");
+    }
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void installBannedFixture(Path root) throws Exception {
+        Path dir = root.resolve("content/108600/123456789/mods/BannedFixture/42");
+        Files.createDirectories(dir);
+        Files.copy(root.resolve("fixture/fixture.jar"), dir.resolve("fixture.jar"), StandardCopyOption.REPLACE_EXISTING);
+        Files.writeString(dir.resolve("mod.info"), "name=Banned fixture\nid=BannedFixture\njavaJarFile=fixture.jar\njavaPkgName=local.approval.banned\n");
+        var mod = new zombie.gameStates.ChooseGameInfo.Mod(dir.toString());
+        mod.setId("BannedFixture"); mod.setName("Banned fixture"); mod.commonDir = dir.toString(); mod.versionDir = dir.toString();
+        for (String name : List.of("available", "availableDone")) {
+            Field f = mod.getClass().getDeclaredField(name); f.setAccessible(true); f.set(mod, true);
+        }
+        Field mods = zombie.gameStates.ChooseGameInfo.class.getDeclaredField("Mods"); mods.setAccessible(true);
+        ((Map)mods.get(null)).put("BannedFixture", mod);
+        // Actual upstream HTTP parser/cache, with an explicit no-network response fixture.
+        SteamWorkshop.putCachedBody("https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
+                "itemcount=1&publishedfileids[0]=123456789",
+                "{\"response\":{\"publishedfiledetails\":[{\"publishedfileid\":\"123456789\",\"banned\":1,\"creator\":\""
+                        + AUTHOR + "\",\"ban_reason\":\"controlled ban\"}]}}");
     }
     public static void main(String[] args) throws Exception {
         Class<?> rand = Class.forName("zombie.core.random.RandStandard");
@@ -151,6 +223,9 @@ public final class ApprovalCancelProbe {
         Path root = Path.of(args[0]).toAbsolutePath();
         if (args.length > 1) loader(root, args[2].equals("null") ? null : Boolean.valueOf(args[2]), true, true);
         else {
+            for (Boolean saved : new Boolean[]{null, false}) for (boolean save : new boolean[]{true, false})
+                for (boolean staleDisk : new boolean[]{false, true})
+                    bannedAuthor(root.resolve("banned-" + saved + "-" + save + "-" + staleDisk), saved, save, staleDisk);
             matrix(root.resolve("save-on"), true); matrix(root.resolve("save-off"), false);
             for (Boolean saved : new Boolean[]{true, false, null}) for (boolean save : new boolean[]{true, false})
                 loader(root.resolve("loader-" + saved + "-" + save), saved, save, false);

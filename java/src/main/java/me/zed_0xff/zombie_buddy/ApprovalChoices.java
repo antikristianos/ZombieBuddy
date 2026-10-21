@@ -1,6 +1,8 @@
 package me.zed_0xff.zombie_buddy;
 
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.Consumer;
 import static me.zed_0xff.zombie_buddy.ModFlags.*;
 
@@ -9,6 +11,23 @@ public final class ApprovalChoices {
     // IPC-only bit above the existing ModFlags range. Never sticky or stored as a hash decision.
     private static final int UNTRUST_ONLY = 1 << 7;
     private static final int CANCEL_PENDING = 1 << 8;
+    // Loading-JVM state only. Never populated from frontend flags or signature claims.
+    private static final Set<SteamWorkshop.SteamID64> banRevokedAuthors = new HashSet<>();
+
+    public static void beginLoad() {
+        banRevokedAuthors.clear();
+    }
+
+    public static void recordBanRevocation(SteamWorkshop.SteamID64 author) {
+        if (author != null) banRevokedAuthors.add(author);
+    }
+
+    /** Save automatic ban revocations before a frontend can open or exit the process. */
+    public static void saveBanRevocations(Config config) {
+        if (!banRevokedAuthors.isEmpty()) Config.save(config);
+        // Keep the loader's dirty flag for its original final save/retry. Config.save
+        // handles write failures internally; the in-memory exclusion remains authoritative.
+    }
     private final boolean[] selected;
     private final boolean[] value;
     private final Boolean[] choice;
@@ -111,7 +130,8 @@ public final class ApprovalChoices {
             boolean eligible = entry.zbs != null && !entry.zbs.invalid() && entry.steamBan == null
                     && !entry.flags.has(MF_BANNED) && !Utils.isBlank(entry.sha256);
             // Match normal prompt handling: verified author trust precedes the stored hash decision.
-            boolean trusted = eligible && entry.zbs.valid() && config.trustsAuthor(entry.zbs.authorSteamId());
+            boolean trusted = eligible && entry.zbs.valid() && config.trustsAuthor(entry.zbs.authorSteamId())
+                    && !banRevokedAuthors.contains(entry.zbs.authorSteamId());
             entry.decision = eligible && (trusted || Boolean.TRUE.equals(approvals.get(entry.sha256)));
             entry.flags = entry.flags.without(CANCEL_PENDING | UNTRUST_ONLY | MF_PERSIST | MF_TRUST_AUTHOR | MF_PRELOAD);
         }

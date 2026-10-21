@@ -46,9 +46,20 @@ loader/config state is restored afterward. Additional tests pin the private nons
 its real JSON round trip, no decision-file creation, and unchanged ordinary confirmation/reset.
 
 `ApprovalCancelProbe.main` is the explicit packaged integration entry. It adds the actual
-`Loader.loadMods()` save gates and six fresh JVM restarts to that state matrix (160 assertions),
+`Loader.loadMods()` save gates and six fresh JVM restarts to that state matrix,
 covering Save on/off for saved Allow, saved Deny and unresolved hashes. Run against the shaded
 agent first, followed by compiled test classes and game JAR, using `-Xverify:all` and a disposable
 output directory. No ImGui native graphics context or game/server starts. Author/signature
 metadata in the state matrix is synthetic; the unsigned actual-loader fixtures do not claim new
 cryptographic validation. Cancel resolution runs in the loading process after JSON IPC.
+
+The probe also supplies a controlled banned Workshop response to the real parser and loader.
+At frontend entry it checks that automatic author-trust revocation is already on disk, before
+creating the dialog. Eight cases combine Save on/off, unresolved/saved-Deny sibling hashes and
+ordinary/deliberately stale disk trust. Unrelated trust and explicit saved Allow remain effective.
+This needs no actual banned Workshop download. The restart launcher selects `java.exe` on
+Windows and `java` on other operating systems; actual platform execution remains separate.
+
+The JSON reader tests reject explicit null flags in both request/response readers and in a later
+row following a valid reset. The IPC-only null-safe adapter leaves the persistent-store adapter
+unchanged; an incomplete message is rejected before any reset or author change is applied.

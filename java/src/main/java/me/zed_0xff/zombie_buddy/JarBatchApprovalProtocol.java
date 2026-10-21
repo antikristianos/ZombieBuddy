@@ -25,7 +25,11 @@ public final class JarBatchApprovalProtocol {
 
     static final String HDR_REQ  = "ZB_BATCH_V8";
     static final String HDR_RESP = "ZB_BATCH_V8_OUT";
-    private static final Gson JSON = ZBGson.PRETTY;
+    // IPC must retain explicit null flags for whole-batch validation. The shared
+    // persistent-store adapter keeps its existing null-to-EMPTY normalization.
+    private static final Gson JSON = ZBGson.PRETTY.newBuilder()
+            .registerTypeAdapter(ModFlags.class, ZBGson.PRETTY.getAdapter(ModFlags.class).nullSafe())
+            .create();
 
     /** Normal construction supplies non-null flags/signature; readers also validate after Gson deserialization. */
     public static final class Entry {

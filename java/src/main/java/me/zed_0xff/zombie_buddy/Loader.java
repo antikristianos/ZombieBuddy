@@ -636,6 +636,7 @@ public class Loader {
             return;
         }
         SteamID64 uploaderID = SteamWorkshop.getUploaderID(workshopItemId, workshopDetailsById);
+        ApprovalChoices.recordBanRevocation(uploaderID);
         if (uploaderID != null && isAuthorTrusted(uploaderID)) {
             removeTrustedAuthor(uploaderID);
             Logger.warn("Removed trusted-author flag for " + uploaderID + " because banned mod was detected: " + modId);
@@ -698,6 +699,7 @@ public class Loader {
     }
 
     public static void loadMods(List<String> mods) {
+        ApprovalChoices.beginLoad();
         ArrayList<JavaModInfo> jModInfos = new ArrayList<>();
         ArrayList<String> jModIds = new ArrayList<>();
         HashSet<String> processedIds = new HashSet<>();
@@ -908,7 +910,10 @@ public class Loader {
                 }
                 List<JarBatchApprovalProtocol.Entry> decided = batchEntries;
                 try {
-                    decided = approvalFrontend().approvePendingMods(batchEntries);
+                    var frontend = approvalFrontend();
+                    // Automatic ban revocations must be on disk before a window can open or exit.
+                    ApprovalChoices.saveBanRevocations(g_config);
+                    decided = frontend.approvePendingMods(batchEntries);
                 } finally {
                     if (g_hasDoLoadingText) {
                         GameWindow.DoLoadingText("Loading Mods");

@@ -273,6 +273,37 @@ class JarBatchApprovalProtocolTest {
         assertSame(saved, stored.get(0));
     }
 
+    @Test
+    void readersRejectExplicitNullFlagsWithoutChangingPersistentAdapter() throws IOException {
+        assertSame(ModFlags.EMPTY, ZBGson.PRETTY.fromJson("null", ModFlags.class));
+        Path path = tempDir.resolve("null-flags.json");
+        for (boolean response : List.of(false, true)) {
+            String header = response ? JarBatchApprovalProtocol.HDR_RESP : JarBatchApprovalProtocol.HDR_REQ;
+            Files.writeString(path, "{\"header\":\"" + header + "\",\"entries\":[{\"flags\":null,\"zbs\":{}}]}");
+            assertThrows(IOException.class, () -> {
+                if (response) JarBatchApprovalProtocol.readResponse(path);
+                else JarBatchApprovalProtocol.readRequest(path);
+            });
+        }
+    }
+
+    @Test
+    void explicitNullFlagsInLaterRowRejectWholeRequestAndResponse() throws IOException {
+        Path path = tempDir.resolve("null-flags-after-reset.json");
+        var saved = new ModApprovalsStore.ModEntry("keep", null, "keep-hash", true, "before", null);
+        var stored = new ArrayList<>(List.of(saved));
+        for (boolean response : List.of(false, true)) {
+            String header = response ? JarBatchApprovalProtocol.HDR_RESP : JarBatchApprovalProtocol.HDR_REQ;
+            Files.writeString(path, "{\"header\":\"" + header
+                    + "\",\"entries\":[{\"sha256\":\"keep-hash\",\"flags\":8,\"zbs\":{}},"
+                    + "{\"flags\":null,\"zbs\":{}}]}");
+            assertThrows(IOException.class, () -> ApprovalChoices.applyClears(
+                    response ? JarBatchApprovalProtocol.readResponse(path) : JarBatchApprovalProtocol.readRequest(path),
+                    stored, author -> fail("Malformed batch must not change trust")));
+            assertEquals(List.of(saved), stored, "Earlier reset must not be applied");
+        }
+    }
+
     private static String loadFixture(String name) throws IOException {
         try (InputStream is = JarBatchApprovalProtocolTest.class.getResourceAsStream("/fixtures/" + name)) {
             if (is == null) {
