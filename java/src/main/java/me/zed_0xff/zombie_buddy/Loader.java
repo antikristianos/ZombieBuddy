@@ -122,6 +122,10 @@ public class Loader {
     private static ZBSVerifier.CheckResult zbsCheck(
         Path jarPath, String hash, WorkshopItemID workshopItemId, ZBSContext ctx
     ) {
+        // Steam bans remain authoritative when allow-all skips signature checks,
+        // including the early preload path that has no later normal-policy loop.
+        var banned = PreloadPolicy.banResult(workshopItemId, ctx.workshopDetailsById());
+        if (banned != null) return banned;
         if (!zbsSignatureChecksEnabled() || jarPath == null || hash == null) {
             return ZBSVerifier.CheckResult.DISABLED;
         }
@@ -400,6 +404,7 @@ public class Loader {
                 g_config = nextConfig;
                 g_configDirty = true;
                 Watermark.setMidLine("Preload mod \"" + id + "\" added/updated. Restart recommended.");
+                PreloadPolicy.restartRequired(id);
             }
         }
 
@@ -990,6 +995,13 @@ public class Loader {
                 JavaModLoadState prev = g_jarLoadStatus.get(canonicalJarPath);
                 if (prev != null) {
                     flags = flags.merge(prev.flags.getSticky());
+                }
+
+                // allow-all authorizes registration after the ordinary permission/
+                // ban gates. The early entry runs on the next start.
+                if (!shouldSkip && POLICY_ALLOW_ALL.equals(g_jarPolicy) && jModInfo.javaPreload()
+                        && PreloadMods.hasManifestPreload(canonicalJarPath)) {
+                    PreloadMods.add(ctx.modId, jModInfo.infPath(), canonicalJarPath);
                 }
 
                 g_jarLoadStatus.put(canonicalJarPath, new JavaModLoadState(

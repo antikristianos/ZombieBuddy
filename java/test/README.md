@@ -72,3 +72,8 @@ Windows and `java` on other operating systems; actual platform execution remains
 The JSON reader tests reject explicit null flags in both request/response readers and in a later
 row following a valid reset. The IPC-only null-safe adapter leaves the persistent-store adapter
 unchanged; an incomplete message is rejected before any reset or author change is applied.
+## Allow-all preloads
+
+`AllowAllPreloadTest` runs through the shaded agent in ordinary `unitTest`, separately for client and dedicated game roles. It verifies automatic registration without author trust for declared signed/unsigned/invalid-sidecar preloads, existing explicit Deny and hash-persistence behavior, missing declarations, Steam bans during normal and early loading, and fresh-JVM `PreMain` execution. A console warning names new/updated entries and requires a full restart while the current process continues. No automatic exit/restart is implemented.
+
+The probe uses controlled HTTP responses and the actual game role flag, not a running game/server. Each accepted preload case starts a fresh agent JVM with an empty bootstrap config, reloads the prepared configuration after installing offline responses, and invokes the actual early loader. Native Linux/macOS execution remains unconfirmed.
