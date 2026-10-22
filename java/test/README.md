@@ -1,5 +1,14 @@
 # Approval regression checks
 
+`AuthorTrustSeparationTest` runs genuine Ed25519-signed fixture mods through the shaded
+agent, the real ImGui state/JSON boundary, Console input and original loader save gates.
+It checks unchanged direct selections/approval bytes, independent explicit hash choices,
+author-only preload registrations for an entire accepted batch, later signed mods in the
+same process, and two actual-agent JVM restarts distinguishing saved/session trust.
+Additional cases cover unsigned/invalid/banned authors, EOF and malformed direct metadata.
+No game or graphics window starts. The test launches the platform's Java executable and
+uses the configured game classpath; native Linux/game acceptance remains separate.
+
 `ApprovalChoicesTest` and `JarBatchApprovalProtocolTest` run with the normal `unitTest` task.
 The dialog test calls only `ApprovalDialogProbe.stateTests()`: this exercises Java state and
 response generation without creating an ImGui/native graphics context. Unit tests need the

@@ -9,10 +9,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import static me.zed_0xff.zombie_buddy.ModFlags.*;
 
-/**
- * Explicit integration probe: main uses native ImGui mouse/draw data and the packaged persistence path.
- * Normal JUnit runs call only stateTests(), which needs no native graphics context. See test/README.md.
- */
+/** Explicit native ImGui integration probe; main is never discovered as a normal unit test. */
 public final class ApprovalDialogProbe {
     static int checks;
     static final Class<?> DIALOG;
@@ -147,14 +144,16 @@ public final class ApprovalDialogProbe {
         var signed = new JarBatchApprovalProtocol.Entry.ZBSignature(true, sid, "verified");
         Object authors = dialog(List.of(entry("author-a", null, 0, signed, null), entry("author-b", null, 0, signed, null), entry("other")));
         trust(authors, 0, true); result = finish(authors, true);
-        check(result.get(0).decision && result.get(1).decision && result.get(0).flags.hasAll(MF_PERSIST, MF_TRUST_AUTHOR)
-                && result.get(1).flags.hasAll(MF_PERSIST, MF_TRUST_AUTHOR), "Explicit author trust covers group");
+        check(!result.get(0).decision && !result.get(1).decision && result.get(0).flags.has(MF_TRUST_AUTHOR)
+                && result.get(1).flags.has(MF_TRUST_AUTHOR) && result.stream().noneMatch(e -> e.flags.has(MF_PERSIST)),
+                "Explicit author trust preserves individual choices and never saves implicit hashes");
         check(!result.get(2).flags.has(MF_PERSIST), "Other author unaffected");
         Object mixed = dialog(List.of(entry("valid-author", null, 0, signed, null),
                 entry("invalid-same-author", null, 0, new JarBatchApprovalProtocol.Entry.ZBSignature(false, sid, "invalid"), null)));
         trust(mixed, 0, true);
         var mixedLines = finish(mixed, true);
-        check(mixedLines.get(0).decision && mixedLines.get(0).flags.hasAll(MF_PERSIST, MF_TRUST_AUTHOR), "Eligible trusted author row persists");
+        check(!mixedLines.get(0).decision && mixedLines.get(0).flags.has(MF_TRUST_AUTHOR)
+                && !mixedLines.get(0).flags.has(MF_PERSIST), "Eligible trust uses independent author persistence");
         check(!mixedLines.get(1).decision && !mixedLines.get(1).flags.has(MF_PERSIST | MF_TRUST_AUTHOR), "Grouped trust cannot save a forced refusal");
         trust(authors, 0, false); result = finish(authors, true);
         check(!result.get(0).decision && !result.get(1).decision && result.stream().noneMatch(e -> e.flags.has(MF_PERSIST)), "Undoing new trust does not save default refusals");
@@ -165,7 +164,7 @@ public final class ApprovalDialogProbe {
         check(!((ImBoolean[])field(authors, "allow"))[0].get(), "Trust toggle restores explicit undecided state");
         var trusted = dialog(List.of(entry("old-trust", true, MF_PERSIST | MF_TRUST_AUTHOR, signed, null)));
         trust(trusted, 0, false); result = finish(trusted, true);
-        check(result.get(0).decision && result.get(0).flags.has(MF_PERSIST) && !result.get(0).flags.has(MF_TRUST_AUTHOR), "Explicit author untrust preserves old allow");
+        check(result.get(0).decision && !result.get(0).flags.has(MF_PERSIST | MF_TRUST_AUTHOR), "Explicit author untrust preserves old allow without rewriting its hash");
         Object blocked = dialog(List.of(entry("invalid", null, 0, new JarBatchApprovalProtocol.Entry.ZBSignature(false, null, "invalid"), null),
                 entry("banned", null, 0, signed, new JarBatchApprovalProtocol.Entry.SteamBan("banned"))));
         result = finish(blocked, true);
@@ -216,7 +215,7 @@ public final class ApprovalDialogProbe {
         call(Loader.class, "applyBatchApprovalLines", new Class<?>[]{List.class, JarDecisionTable.class}, denied, table);
         ModApprovalsStore.save(data);
         check(Arrays.equals(before, Files.readAllBytes(root.resolve("mod_approvals.json"))), "Cancel discards pending reset of saved decision");
-        int exit = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").toLowerCase(Locale.ROOT).startsWith("windows") ? "java.exe" : "java").toString(),
+        int exit = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java.exe").toString(),
                 "-Xverify:all", "-cp", System.getProperty("java.class.path"), ApprovalDialogProbe.class.getName(), root.toString(), "read").inheritIO().start().waitFor();
         check(exit == 0, "Independent restart process");
         Path emptyRoot = root.resolve("last-reset");

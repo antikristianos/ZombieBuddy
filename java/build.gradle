@@ -526,6 +526,9 @@ task unitTest(type: Test) {
     dependsOn testJar
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath + files(GAME_CLASSPATH)
+    dependsOn shadowJar
+    systemProperty 'zb.test.authorTrustAgent', shadowJar.archiveFile.get().asFile.absolutePath
+    systemProperty 'zb.test.authorTrustClasspath', (sourceSets.test.runtimeClasspath + files(GAME_CLASSPATH)).asPath
 }
 
 // Main test task - runs unit tests, vanilla, and patched tests

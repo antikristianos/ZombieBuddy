@@ -19,8 +19,12 @@ public final class ApprovalChoices {
     }
 
     public static void recordBanRevocation(SteamWorkshop.SteamID64 author) {
-        if (author != null) banRevokedAuthors.add(author);
+        if (author != null) {
+            banRevokedAuthors.add(author);
+        }
     }
+
+    public static boolean wasBanRevoked(SteamWorkshop.SteamID64 author) { return banRevokedAuthors.contains(author); }
 
     /** Save automatic ban revocations before a frontend can open or exit the process. */
     public static void saveBanRevocations(Config config) {
@@ -78,7 +82,7 @@ public final class ApprovalChoices {
     }
 
     public boolean shouldPersist(int index, boolean save) {
-        return save && !blocked[index] && (selected[index] || (trust[index] && !initialTrust[index]));
+        return save && !blocked[index] && selected[index];
     }
 
     public int denyColor(int index, boolean forced, int red) {
@@ -96,13 +100,11 @@ public final class ApprovalChoices {
         for (int i = 0; i < entries.size(); i++) {
             var entry = entries.get(i);
             entry.flags = entry.flags.without(UNTRUST_ONLY);
-            if (save && cleared[i] && !blocked[i] && !trust[i]) {
+            if (save && cleared[i] && !blocked[i]) {
                 entry.decision = null;
-                entry.flags = entry.flags.with(MF_PERSIST).without(MF_TRUST_AUTHOR);
-            } else if (save && initialTrust[i] && !trust[i] && !blocked[i] && !selected[i]) {
-                // Revoking trust is not an Allow/Deny click or a reset of an untouched hash.
-                entry.flags = entry.flags.with(MF_PERSIST | UNTRUST_ONLY).without(MF_TRUST_AUTHOR | MF_PRELOAD);
+                entry.flags = entry.flags.with(MF_PERSIST);
             }
+            AuthorTrustChoices.mark(entry, trust[i], trust[i] != initialTrust[i], save);
         }
         return entries;
     }
@@ -111,7 +113,7 @@ public final class ApprovalChoices {
     public static List<JarBatchApprovalProtocol.Entry> cancel(List<JarBatchApprovalProtocol.Entry> entries) {
         for (var entry : entries) {
             entry.decision = false;
-            entry.flags = entry.flags.without(MF_PERSIST | MF_TRUST_AUTHOR | MF_PRELOAD | UNTRUST_ONLY)
+            entry.flags = AuthorTrustChoices.cancelFlags(entry.flags).without(MF_PERSIST | MF_TRUST_AUTHOR | MF_PRELOAD | UNTRUST_ONLY)
                     .with(CANCEL_PENDING);
         }
         return entries;
@@ -134,6 +136,7 @@ public final class ApprovalChoices {
                     && !banRevokedAuthors.contains(entry.zbs.authorSteamId());
             entry.decision = eligible && (trusted || Boolean.TRUE.equals(approvals.get(entry.sha256)));
             entry.flags = entry.flags.without(CANCEL_PENDING | UNTRUST_ONLY | MF_PERSIST | MF_TRUST_AUTHOR | MF_PRELOAD);
+            AuthorTrustChoices.cancelled(entry);
         }
     }
 
@@ -168,9 +171,6 @@ public final class ApprovalChoices {
             if (entry == null || entry.decision != null || entry.flags == null || !entry.flags.has(MF_PERSIST)) continue;
             if (entry.zbs != null && !entry.zbs.invalid() && entry.steamBan == null && !Utils.isBlank(entry.sha256)) {
                 changed |= stored.removeIf(old -> old != null && entry.sha256.equals(old.jarHash));
-                if (entry.zbs.valid() && entry.zbs.authorSteamId() != null) {
-                    removeTrustedAuthor.accept(entry.zbs.authorSteamId());
-                }
             }
             entry.decision = false;
             entry.flags = entry.flags.without(MF_PERSIST | MF_TRUST_AUTHOR);

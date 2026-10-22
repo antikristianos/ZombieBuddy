@@ -330,6 +330,7 @@ public class Loader {
     static void applyBatchApprovalLines(List<JarBatchApprovalProtocol.Entry> entries, JarDecisionTable disk) {
         // Cancel discards UI edits and restores saved decisions/trust after frontend IPC.
         ApprovalChoices.applyCancelled(entries);
+        AuthorTrustChoices.applyAuthors(entries, Loader::storeTrustedAuthor, Loader::removeTrustedAuthor);
         // Consume trust-only revocations without changing the hash store, and explicit resets:
         // null + MF_PERSIST requests an explicit reset, not a permanent denial.
         // Consume it before normal processing: remove the stored hash/author trust,
@@ -347,14 +348,6 @@ public class Loader {
                 storeDecision(entry.sha256, allow, entry.modId, entry.workshopItemId,
                     entry.zbs.valid() ? entry.zbs.authorSteamId() : null);
             }
-            if (entry.flags.has(MF_PERSIST) && entry.zbs.valid() && entry.zbs.authorSteamId() != null) {
-                if (entry.flags.has(MF_TRUST_AUTHOR)) {
-                    storeTrustedAuthor(entry.zbs.authorSteamId());
-                } else if (isAuthorTrusted(entry.zbs.authorSteamId())) {
-                    // 'trust author' checkbox unchecked
-                    removeTrustedAuthor(entry.zbs.authorSteamId());
-                }
-            }
             if (entry.flags.has(MF_PRELOAD) && !Utils.isBlank(entry.modId) && !Utils.isBlank(entry.infAbsolutePath) && !Utils.isBlank(entry.jarAbsolutePath)) {
                 if (allow) {
                     PreloadMods.add(entry.modId, entry.infAbsolutePath, entry.jarAbsolutePath);
@@ -363,13 +356,15 @@ public class Loader {
                 }
             }
         }
+        AuthorTrustChoices.authorize(entries, disk, g_config, Loader::registerTrustedPreload);
+    }
+
+    private static void registerTrustedPreload(JarBatchApprovalProtocol.Entry entry) {
+        PreloadMods.add(entry.modId, entry.infAbsolutePath, entry.jarAbsolutePath);
     }
 
     private static boolean isAuthorTrusted(SteamID64 sid) {
-        if (sid == null) {
-            return false;
-        }
-        return g_config.trustsAuthor(sid);
+        return AuthorTrustChoices.isPersistentlyTrusted(sid, g_config);
     }
 
     private static void storeTrustedAuthor(SteamID64 sid) {
@@ -637,8 +632,9 @@ public class Loader {
         }
         SteamID64 uploaderID = SteamWorkshop.getUploaderID(workshopItemId, workshopDetailsById);
         ApprovalChoices.recordBanRevocation(uploaderID);
-        if (uploaderID != null && isAuthorTrusted(uploaderID)) {
+        if (uploaderID != null && AuthorTrustChoices.isTrustedForRevocation(uploaderID, g_config)) {
             removeTrustedAuthor(uploaderID);
+            AuthorTrustChoices.revokeSession(uploaderID);
             Logger.warn("Removed trusted-author flag for " + uploaderID + " because banned mod was detected: " + modId);
         }
     }
@@ -867,11 +863,11 @@ public class Loader {
                     // so the user sees their earlier choices pre-filled in the dialog.
                     decision = g_sessionJarDecisions.get(ctx.hash);
                 }
-                if (!g_forceApprovalDialog && !ctx.steamBanned && zbs.valid() && isAuthorTrusted(authorID)) {
+                if (!g_forceApprovalDialog && !ctx.steamBanned && zbs.valid() && AuthorTrustChoices.isTrusted(authorID, g_config)) {
                     // Auto-approve for this session only — trusted-author approvals are not persisted
                     // because the trust comes from the author record, not the specific JAR hash.
                     approvals.put(ctx.hash, Boolean.TRUE);
-                    if (jModInfo.javaPreload() && PreloadMods.hasManifestPreload(ctx.jarPath)) {
+                    if (g_config.trustsAuthor(authorID) && jModInfo.javaPreload() && PreloadMods.hasManifestPreload(ctx.jarPath)) {
                         PreloadMods.add(ctx.modId, jModInfo.infPath(), ctx.jarPath);
                     }
                     continue;
@@ -880,7 +876,7 @@ public class Loader {
                     if (decision != null) continue;
                 }
                 ModFlags entryFlags = new ModFlags(isDecisionStored(ctx.hash, decision) ? MF_PERSIST : MF_NONE);
-                if (zbs.valid() && authorID != null && isAuthorTrusted(authorID) && !ctx.steamBanned) {
+                if (zbs.valid() && authorID != null && AuthorTrustChoices.isTrusted(authorID, g_config) && !ctx.steamBanned) {
                     entryFlags = entryFlags.with(MF_TRUST_AUTHOR);
                 }
                 final boolean bHasManifestPreload = PreloadMods.hasManifestPreload(ctx.jarPath);
@@ -954,7 +950,7 @@ public class Loader {
                 skipReason = " (" + ctx.zbsResult.blockReason() + ", modId=" + ctx.modId + ")";
             }
 
-            if (flags.hasAll(MF_VALID, MF_SIGNED) && isAuthorTrusted(ctx.zbsResult.uploaderID())) {
+            if (flags.hasAll(MF_VALID, MF_SIGNED) && AuthorTrustChoices.isPersistentlyTrusted(ctx.zbsResult.sid(), g_config)) {
                 flags = flags.with(MF_TRUST_AUTHOR);
             }
 

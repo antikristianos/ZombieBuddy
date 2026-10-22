@@ -55,13 +55,13 @@ class ApprovalChoicesTest {
     }
 
     @Test
-    void signedResetRetainsExplicitAuthorUntrustProcessing() {
+    void signedHashResetDoesNotRevokeAuthorTrust() {
         var author = new SteamWorkshop.SteamID64(76561197974968019L);
         var entry = ApprovalDialogProbe.entry("signed", null, MF_PERSIST,
                 new JarBatchApprovalProtocol.Entry.ZBSignature(true, author, "verified"), null);
         var removedAuthor = new AtomicReference<SteamWorkshop.SteamID64>();
         ApprovalChoices.applyClears(List.of(entry), new ArrayList<>(), removedAuthor::set);
-        assertEquals(author, removedAuthor.get());
+        assertNull(removedAuthor.get());
         assertEquals(Boolean.FALSE, entry.decision);
     }
 

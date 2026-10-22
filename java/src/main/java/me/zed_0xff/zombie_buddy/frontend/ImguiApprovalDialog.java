@@ -75,7 +75,7 @@ final class ImguiApprovalDialog {
     private static final String COL_STEAM_BAN           = "Steam ban status";
     private static final String COL_ALLOW               = "Allow";
     private static final String COL_TRUST_AUTHOR        = "Trust author";
-    private static final String TRUST_AUTHOR_TOOLTIP    = "Signed mods by that author can be auto-allowed while the signature remains valid and the mod is not banned.";
+    private static final String TRUST_AUTHOR_TOOLTIP    = "Trust signed mods by this author without changing individual Allow/Deny choices. Saving stores author trust separately from hash decisions.";
     private static final String WATERMARK_ICON_RESOURCE = "zb_icon.png";
 
     private static IconTexture watermarkIcon;
@@ -519,9 +519,6 @@ final class ImguiApprovalDialog {
         if (forceDeny[index]) {
             allow[index].set(false);
             interactive = false;
-        } else if (trustAuthor[index].get()) {
-            allow[index].set(true);
-            interactive = false;
         }
         drawAllowCheckboxes(index, interactive);
     }
@@ -830,7 +827,6 @@ final class ImguiApprovalDialog {
 
     private void setAllowForTrust(int index, boolean selected) {
         choices.trust(index, selected);
-        allow[index].set(!forceDeny[index] && (selected || choices.restoreAllow(index, initialAllow[index])));
     }
 
     private List<JarBatchApprovalProtocol.Entry> buildLines() {
@@ -848,7 +844,7 @@ final class ImguiApprovalDialog {
             } else {
                 e.flags = e.flags.without(MF_PERSIST);
             }
-            if (saveRow && trustAuthor[i].get() && canTrustAuthor(e)) {
+            if (trustAuthor[i].get() && canTrustAuthor(e)) {
                 e.flags = e.flags.with(MF_TRUST_AUTHOR);
             } else {
                 e.flags = e.flags.without(MF_TRUST_AUTHOR);
