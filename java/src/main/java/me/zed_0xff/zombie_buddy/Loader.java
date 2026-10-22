@@ -814,6 +814,7 @@ public class Loader {
             );
         }
 
+        Set<String> dialogHashes = new HashSet<>();
         if (POLICY_PROMPT.equals(g_jarPolicy)) {
             // Late Shift re-check: on first boot the display window may not exist when
             // checkShiftKey() runs above (before workshop/ZBS work). By the time we reach
@@ -860,9 +861,6 @@ public class Loader {
                     // Auto-approve for this session only — trusted-author approvals are not persisted
                     // because the trust comes from the author record, not the specific JAR hash.
                     approvals.put(ctx.hash, Boolean.TRUE);
-                    if (jModInfo.javaPreload() && PreloadMods.hasManifestPreload(ctx.jarPath)) {
-                        PreloadMods.add(ctx.modId, jModInfo.infPath(), ctx.jarPath);
-                    }
                     continue;
                 }
                 if (!g_forceApprovalDialog && !ctx.steamBanned) {
@@ -879,6 +877,7 @@ public class Loader {
                     Logger.warn(ctx.modId + ": javaPreload=" + jModInfo.javaPreload() + ", hasManifestPreload=" + bHasManifestPreload
                         + ", zbs.valid()=" + zbs.valid());
                 }
+                dialogHashes.add(ctx.hash);
                 batchEntries.add(new JarBatchApprovalProtocol.Entry(
                     ctx.modId,
                     ctx.workshopItemId,
@@ -974,6 +973,21 @@ public class Loader {
                 }
                 if (!shouldSkip) {
                     flags = flags.with(MF_ACTIVE);
+                    // A saved hash approval can bypass the dialog while its preload entry
+                    // is missing. Recover only after the ordinary load checks, and never
+                    // override this batch's frontend choices or an existing registration.
+                    boolean savedAllow = Boolean.TRUE.equals(decision) && isDecisionStored(ctx.hash, decision);
+                    if (!dialogHashes.contains(ctx.hash)
+                        && flags.hasAll(MF_VALID, MF_SIGNED)
+                        && (savedAllow || isAuthorTrusted(ctx.zbsResult.sid()))
+                        && !g_config.preload_mods().containsKey(ctx.modId)
+                        && jModInfo.javaPreload() && PreloadMods.hasManifestPreload(ctx.jarPath)) {
+                        PreloadMods.add(ctx.modId, jModInfo.infPath(), ctx.jarPath);
+                        if (g_config.preload_mods().containsKey(ctx.modId)) {
+                            Logger.info("Restoring preload registration for approved mod '" + ctx.modId + "' via "
+                                + (savedAllow ? "saved hash Allow" : "verified author trust") + "; full restart required.");
+                        }
+                    }
                 }
 
                 // merge in "sticky" flags like MF_ACTIVE or MF_PRELOAD
