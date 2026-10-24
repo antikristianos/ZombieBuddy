@@ -109,7 +109,7 @@ public final class PreloadRecoveryProbe {
         Config initial = new Config(new ArrayList<>(), new LinkedHashMap<>(), false, false, true, true);
         if (mode.startsWith("trusted")) initial = initial.withTrustedAuthor(AUTHOR);
         if (mode.equals("existing")) initial = initial.withPreloadMod(ID,
-            new Config.PreloadMod(jar.getParent().resolve("mod.info"), root.resolve("previous.jar")));
+            new Config.PreloadMod(jar.getParent().resolve("mod.info"), jar));
         Files.writeString(configDir.resolve("config.json"), ZBGson.PRETTY.toJson(initial));
         Loader.initConfig();
         byte[] approvalsBefore = Files.readAllBytes(configDir.resolve("mod_approvals.json"));
@@ -144,7 +144,7 @@ public final class PreloadRecoveryProbe {
             assertNotNull(state);
             assertTrue(state.flags().hasAll(MF_ACTIVE, MF_VALID, MF_SIGNED), "Fixture must pass actual signature and load checks");
             assertTrue(after.preload_mods().containsKey(ID), "Saved Allow or verified Author Trust must restore missing registration");
-            assertEquals(new Config.PreloadMod(jar.getParent().resolve("mod.info"), jar), after.preload_mods().get(ID));
+            assertEquals(new Config.PreloadMod(jar.getParent().resolve("mod.info"), jar.toRealPath()), after.preload_mods().get(ID));
             assertEquals(0, prompts[0]);
             assertNull(System.getProperty("recovery.premain"), "Registration cannot preload retroactively");
             byte[] once = Files.readAllBytes(configDir.resolve("config.json"));

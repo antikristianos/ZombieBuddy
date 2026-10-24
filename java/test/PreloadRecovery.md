@@ -22,3 +22,8 @@ The current master already has separate frontend persistence behavior; these
 tests do not claim to fix Save/Cancel handling addressed by PR #92. They establish
 loader and isolated restart behavior, not a graphical game boot, native Linux
 execution, or multiplayer acceptance.
+
+Approved moved JARs now update obsolete registrations after those same checks;
+valid existing registrations, including filesystem aliases of the same files,
+remain unchanged. See [selection and early-load regressions](PreloadSelection.md)
+for the additional actual-agent/Vanilla-save coverage.
