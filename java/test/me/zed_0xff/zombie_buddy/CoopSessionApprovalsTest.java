@@ -111,4 +111,21 @@ class CoopSessionApprovalsTest {
             assertEquals(0, process.exitValue(), Files.readString(log));
         } finally { if (process.isAlive()) process.destroyForcibly(); }
     }
+
+    @Test void rejectedDirectorySymlinkCannotDeleteTheRealSnapshot() throws Exception {
+        Path file = CoopSessionApprovals.publish(Map.of(), Map.of(), root);
+        Path link = file.getParent().resolveSibling("zombie-buddy-coop-link-" + UUID.randomUUID());
+        try {
+            try { Files.createSymbolicLink(link, file.getParent()); }
+            catch (UnsupportedOperationException | FileSystemException unavailable) {
+                org.junit.jupiter.api.Assumptions.abort("Directory symlinks are unavailable: " + unavailable.getClass().getSimpleName());
+            }
+            byte[] original = Files.readAllBytes(file);
+            assertEquals(false, component(read(link.resolve(file.getFileName()), root, nonce(file)), "usable"));
+            assertArrayEquals(original, Files.readAllBytes(file));
+        } finally {
+            Files.deleteIfExists(link);
+            read(file, root, nonce(file));
+        }
+    }
 }

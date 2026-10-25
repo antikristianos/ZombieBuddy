@@ -123,11 +123,10 @@ public class Loader {
         Path jarPath, String hash, WorkshopItemID workshopItemId, ZBSContext ctx
     ) {
         if (!zbsSignatureChecksEnabled() || jarPath == null || hash == null) {
-            return CoopSessionApprovals.check(hash, ZBSVerifier.CheckResult.DISABLED);
+            return ZBSVerifier.CheckResult.DISABLED;
         }
-        return CoopSessionApprovals.check(hash,
-            ZBSVerifier.check(jarPath, hash, workshopItemId, workshopItemId != null,
-                g_allowUnsignedMods, ctx.workshopDetailsById(), ctx.knownAuthorsBySteamId()));
+        return ZBSVerifier.check(jarPath, hash, workshopItemId, workshopItemId != null,
+            g_allowUnsignedMods, ctx.workshopDetailsById(), ctx.knownAuthorsBySteamId());
     }
 
     private static boolean zbsBlocked(ZBSVerifier.CheckResult r) {
@@ -496,7 +495,8 @@ public class Loader {
 
         // Second pass: ZBS check and load
         for (PreloadEntry entry : entries) {
-            ZBSVerifier.CheckResult zbsResult = zbsCheck(entry.canJarPath(), entry.hash(), entry.workshopItemId(), zbsCtx);
+            ZBSVerifier.CheckResult zbsResult = CoopSessionApprovals.check(entry.hash(),
+                    zbsCheck(entry.canJarPath(), entry.hash(), entry.workshopItemId(), zbsCtx));
             if (zbsBlocked(zbsResult)) {
                 Logger.warn("Preload pkg '" + entry.javaPkgName() + "': ZBS check failed (" + zbsResult.blockReason() + "); skipping.");
                 PreloadMods.remove(entry.id());
@@ -827,7 +827,8 @@ public class Loader {
                 ? new SteamWorkshop.BanInfo(null, "Workshop id not found in mod path.")
                 : (workshopDetails != null ? workshopDetails.ban() : null);
             boolean steamBanned = banInfo != null && Boolean.TRUE.equals(banInfo.status());
-            modContexts.add(new ModCtx(modId, jarPath, hash, workshopItemId, workshopDetails, banInfo, steamBanned, zbsCheck(jarPath, hash, workshopItemId, zbsCtx)));
+            modContexts.add(new ModCtx(modId, jarPath, hash, workshopItemId, workshopDetails, banInfo, steamBanned,
+                    CoopSessionApprovals.check(hash, zbsCheck(jarPath, hash, workshopItemId, zbsCtx))));
         }
         for (ModCtx ctx : modContexts) {
             untrustAuthorForBannedMod(
