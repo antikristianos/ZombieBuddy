@@ -24,14 +24,23 @@ public final class CoopServerJvmArguments {
 
     /** Called only at CoopMaster's ProcessBuilder construction site. */
     public static List<String> inherit(List<String> command) {
+        List<String> prepared;
         try {
-            return prepare(
+            prepared = prepare(
                     command, System.getProperty("os.name", ""), loadedJar(), Agent.arguments);
         } catch (IOException | RuntimeException e) {
             // Do not log the command: it contains the host's admin password.
             Logger.warn(
                     "Could not pass ZombieBuddy to the Coop JVM: " + e.getClass().getSimpleName());
             return command;
+        }
+        if (prepared == command) return command;
+        try {
+            return CoopSessionApprovals.launch(prepared);
+        } catch (IOException | RuntimeException e) {
+            // Falling back here could load a saved Allow after the client chose session Deny.
+            Logger.warn("Could not securely pass local Coop session decisions; refusing host launch.");
+            throw new IllegalStateException("Local Coop session handoff failed", e);
         }
     }
 

@@ -210,10 +210,16 @@ The Coop child is read-only for client-owned decisions and settings. It never
 opens an approval dialog, changes author trust/preload entries, creates or
 replaces `config.json`/`mod_approvals.json`, or removes legacy approval files.
 Each mod-loading pass reads the client's current saved configuration and
-approvals. Under `policy=prompt`, missing approvals are denied without prompting;
-existing author trust and allow/deny entries keep their normal meaning. Explicit
-`policy=allow-all` permits loading for that child session without saving new
-decisions. Unsaved client-only dialog choices are not transferred by this path.
+approvals. Immediately before each host launch, the client additionally hands
+over its current process-only Allow/Deny choices. When the independent author
+choice changes are present, process-only author trust and explicit untrust are
+included too. The child retains these overrides in memory across loading passes;
+they never become saved approvals, saved trust or new persistent preload entries.
+Normal signature, Steam-ban and policy checks still apply. Registered preloads
+also respect the transferred temporary denials before any `PreMain` executes.
+Under `policy=prompt`, an unresolved approval is denied without prompting.
+Explicit `policy=allow-all` remains authority for the child session, while an
+effective hash denial still blocks loading under the ordinary author precedence.
 Client and separately launched dedicated agents retain their existing write/UI
 behavior. The verified `authors.local.json` identity cache remains independent
 of approval/trust decisions and retains its existing lock/merge protocol.
@@ -224,6 +230,15 @@ role before mods load; changing mutable agent options/properties later cannot
 disable the guards. Normal Java `GameServer -coop` commands are also recognized
 when an agent was injected manually. This is an ownership rule for supported
 loader/store APIs, not a sandbox against arbitrary code in already allowed mods.
+
+Session handoff uses an owner-only temporary snapshot and a fresh per-launch
+nonce in two JVM properties, outside the native option buffer. The child checks
+the version, bounds, nonce and configuration scope, consumes/deletes the file
+once, and cannot reuse it for a later host launch. Failed starts leave snapshots
+for at most five minutes or until the client exits. A missing or invalid explicitly
+requested handoff blocks Java mods, including preloads; it never falls back to
+saved grants that the client may have temporarily denied. A snapshot publication
+failure refuses the modified host launch with a sanitized warning.
 
 Windows uses `-agentlib:zbNative`; Linux and macOS use `-javaagent:` with the actual
 loaded ZombieBuddy JAR. Existing JVM options and the game's garbage-collector
