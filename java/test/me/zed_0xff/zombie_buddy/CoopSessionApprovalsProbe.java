@@ -21,6 +21,18 @@ public final class CoopSessionApprovalsProbe {
     private static Field field(Class<?> owner, String name) throws Exception {
         Field field = owner.getDeclaredField(name); field.setAccessible(true); return field;
     }
+    private static boolean authorTrusted(SteamWorkshop.SteamID64 author) throws Exception {
+        try {
+            Class<?> choices = Class.forName("me.zed_0xff.zombie_buddy.AuthorTrustChoices");
+            Method method = choices.getDeclaredMethod("isTrusted", SteamWorkshop.SteamID64.class, Config.class);
+            method.setAccessible(true);
+            return (boolean) method.invoke(null, author, Loader.coopSessionConfig());
+        } catch (ClassNotFoundException independentCoopPR) {
+            Method method = Loader.class.getDeclaredMethod("isAuthorTrusted", SteamWorkshop.SteamID64.class);
+            method.setAccessible(true);
+            return (boolean) method.invoke(null, author);
+        }
+    }
     private static void load(Path root, String id, boolean allowed) throws Exception {
         fixture("register", new Class<?>[]{Path.class, String.class}, root, id);
         fixture("load", new Class<?>[]{String.class}, id);
@@ -50,12 +62,10 @@ public final class CoopSessionApprovalsProbe {
             if (mode.equals("authors")) {
                 check(Boolean.FALSE.equals(CoopSessionApprovals.authorChoice(authorA)), "Temporary untrust preserved");
                 check(Boolean.TRUE.equals(CoopSessionApprovals.authorChoice(authorB)), "Temporary trust preserved");
-                var trusted = Loader.class.getDeclaredMethod("isAuthorTrusted", SteamWorkshop.SteamID64.class);
-                trusted.setAccessible(true);
-                check(!(boolean) trusted.invoke(null, authorA), "Imported untrust overrides stored trust");
-                check((boolean) trusted.invoke(null, authorB), "Imported trust applies without stored grant");
+                check(!authorTrusted(authorA), "Imported untrust overrides stored trust");
+                check(authorTrusted(authorB), "Imported trust applies without stored grant");
                 CoopSessionApprovals.revokeAuthor(authorB);
-                check(!(boolean) trusted.invoke(null, authorB), "Ban can revoke imported trust in memory");
+                check(!authorTrusted(authorB), "Ban can revoke imported trust in memory");
             }
             Agent.arguments.put("config_dir", root.resolve("different-config").toString());
             check(!CoopSessionApprovals.isUsable(), "Authority cannot cross configuration scope");
