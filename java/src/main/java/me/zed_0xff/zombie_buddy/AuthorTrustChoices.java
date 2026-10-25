@@ -20,6 +20,18 @@ public final class AuthorTrustChoices {
         return sessions.computeIfAbsent(Agent.configDir().toAbsolutePath().normalize(), key -> new HashMap<>());
     }
 
+    /** Optional bridge for the independent local-Coop PR; no persistent authority is manufactured. */
+    static Map<String, Boolean> coopSessionChoices(Config config) {
+        Map<String, Boolean> result = new HashMap<>();
+        session().forEach((author, trusted) -> result.put(Long.toString(author.value()), trusted));
+        return result;
+    }
+
+    /** Imported once by the read-only child, including explicit process-only untrust. */
+    static void applyCoopSessionChoices(Map<String, Boolean> choices) {
+        choices.forEach((author, trusted) -> session().put(new SteamWorkshop.SteamID64(author), trusted));
+    }
+
     public static boolean eligible(JarBatchApprovalProtocol.Entry entry) {
         return entry != null && entry.flags != null && entry.zbs != null && entry.zbs.valid()
             && entry.zbs.authorSteamId() != null && entry.steamBan == null && !entry.flags.has(MF_BANNED)
